@@ -107,6 +107,22 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
     brightness: number;
     twinkle: number;
   }>>([]);
+  
+  // Mouse trail and interaction refs
+  const mouseTrailRef = useRef<Array<{ x: number; y: number; time: number }>>([]);
+  const isMouseDownRef = useRef(false);
+  const previousMousePosRef = useRef({ x: 0, y: 0 });
+  
+  // Transition smoothing refs
+  const previousIntensityRef = useRef(1);
+  const targetIntensityRef = useRef(1);
+  
+  // Screen-wide effect animation states
+  const screenEffectProgressRef = useRef<{
+    waves: number;
+    guitar: number;
+    flowingLines: number;
+  }>({ waves: 0, guitar: 0, flowingLines: 0 });
 
   useEffect(() => {
     // Load audio from Supabase storage
@@ -272,7 +288,46 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
 
     // Mouse tracking for interaction
     const handleMouseMove = (e: MouseEvent) => {
-      mouseRef.current = { x: e.clientX, y: e.clientY };
+      const newX = e.clientX;
+      const newY = e.clientY;
+      const prevPos = previousMousePosRef.current;
+      
+      // Track mouse movement for trail
+      const distance = Math.sqrt(
+        Math.pow(newX - prevPos.x, 2) + Math.pow(newY - prevPos.y, 2)
+      );
+      
+      if (distance > 5) { // Only add to trail if mouse moved significantly
+        mouseTrailRef.current.push({
+          x: newX,
+          y: newY,
+          time: Date.now(),
+        });
+        
+        // Keep trail limited to last 20 positions
+        if (mouseTrailRef.current.length > 20) {
+          mouseTrailRef.current.shift();
+        }
+      }
+      
+      mouseRef.current = { x: newX, y: newY };
+      previousMousePosRef.current = { x: newX, y: newY };
+    };
+    
+    // Mouse down handler
+    const handleMouseDown = (e: MouseEvent) => {
+      isMouseDownRef.current = true;
+    };
+    
+    // Mouse up handler
+    const handleMouseUp = (e: MouseEvent) => {
+      isMouseDownRef.current = false;
+    };
+    
+    // Mouse leave handler - clear trail
+    const handleMouseLeave = () => {
+      mouseTrailRef.current = [];
+      isMouseDownRef.current = false;
     };
     
     // Mouse click handler for explosions
@@ -338,6 +393,9 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
     };
     
     window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('mouseleave', handleMouseLeave);
     window.addEventListener('click', handleMouseClick);
 
     const bufferLength = analyser.frequencyBinCount;
@@ -421,41 +479,47 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       let isMusicPopsSection = false;
       let isFinaleSection = false;
       
-      // Determine current section and intensity
+      // Determine current section and target intensity
       if (currentTime >= 26 && currentTime < 45) {
         isVocalSection = true;
-        timeIntensityMultiplier = 1.2;
+        targetIntensityRef.current = 1.2;
       } else if (currentTime >= 45 && currentTime < 58) {
         isSparksSection = true;
-        timeIntensityMultiplier = 1.3;
+        targetIntensityRef.current = 1.3;
       } else if (currentTime >= 58 && currentTime < 75) {
         isStormSection = true;
-        timeIntensityMultiplier = 1.5;
+        targetIntensityRef.current = 1.5;
       } else if (currentTime >= 75 && currentTime < 124) {
         isGuitarSection = true;
-        timeIntensityMultiplier = 1.4;
+        targetIntensityRef.current = 1.4;
       } else if (currentTime >= 124 && currentTime < 135) {
         isRampUpSection = true;
         const rampProgress = (currentTime - 124) / 11; // 0 to 1
-        timeIntensityMultiplier = 1.2 + rampProgress * 0.8; // 1.2 to 2.0
+        targetIntensityRef.current = 1.2 + rampProgress * 0.8; // 1.2 to 2.0
       } else if (currentTime >= 135 && currentTime < 157) {
-        timeIntensityMultiplier = 2.0;
+        targetIntensityRef.current = 2.0;
       } else if (currentTime >= 157 && currentTime < 194) {
         isLullSection = true;
-        timeIntensityMultiplier = 0.6;
+        targetIntensityRef.current = 0.6;
       } else if (currentTime >= 194 && currentTime < 213) {
         isVocalSection = true;
         const vocalRampProgress = (currentTime - 194) / 19;
-        timeIntensityMultiplier = 1.0 + vocalRampProgress * 1.0; // 1.0 to 2.0
+        targetIntensityRef.current = 1.0 + vocalRampProgress * 1.0; // 1.0 to 2.0
       } else if (currentTime >= 213 && currentTime < 230) {
-        timeIntensityMultiplier = 2.0;
+        targetIntensityRef.current = 2.0;
       } else if (currentTime >= 230 && currentTime < 250) {
         isMusicPopsSection = true;
-        timeIntensityMultiplier = 2.5;
+        targetIntensityRef.current = 2.5;
       } else if (currentTime >= 250) {
         isFinaleSection = true;
-        timeIntensityMultiplier = 3.0;
+        targetIntensityRef.current = 3.0;
       }
+      
+      // Smooth transition between intensity values (especially for lull)
+      const transitionSpeed = isLullSection ? 0.02 : 0.05; // Slower transition for lull
+      const intensityDiff = targetIntensityRef.current - previousIntensityRef.current;
+      previousIntensityRef.current += intensityDiff * transitionSpeed;
+      timeIntensityMultiplier = previousIntensityRef.current;
       
       // Apply time intensity to base intensity
       const finalIntensity = effectIntensity * timeIntensityMultiplier;
@@ -595,12 +659,52 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         ctx.restore();
       }
       
-      // Update and draw vocal particles
+      // Mouse trail music notes - create notes behind cursor
+      if (mouseTrailRef.current.length > 1 && mouse.x > 0 && mouse.y > 0) {
+        const trailLength = mouseTrailRef.current.length;
+        // Create notes from trail positions (every 3rd position to avoid clutter)
+        for (let i = Math.max(0, trailLength - 10); i < trailLength; i += 3) {
+          const trailPos = mouseTrailRef.current[i];
+          const age = Date.now() - trailPos.time;
+          if (age < 200) { // Only create notes from recent trail positions
+            const chars = ['♪', '♫', '♬', '♭', '♮', '♯'];
+            vocalParticlesRef.current.push({
+              x: trailPos.x,
+              y: trailPos.y,
+              vx: (Math.random() - 0.5) * 0.3,
+              vy: -0.5 - Math.random() * 0.5,
+              size: 8 + Math.random() * 4, // Smaller for trail
+              hue: (time * 50 + i * 20) % 360,
+              life: 1.0,
+              char: chars[Math.floor(Math.random() * chars.length)],
+            });
+          }
+        }
+      }
+      
+      // Click and hold music notes
+      if (isMouseDownRef.current && mouse.x > 0 && mouse.y > 0) {
+        const chars = ['♪', '♫', '♬', '♭', '♮', '♯'];
+        for (let i = 0; i < 2; i++) {
+          vocalParticlesRef.current.push({
+            x: mouse.x + (Math.random() - 0.5) * 20,
+            y: mouse.y + (Math.random() - 0.5) * 20,
+            vx: (Math.random() - 0.5) * 0.5,
+            vy: -1 - Math.random() * 1,
+            size: 10 + Math.random() * 6,
+            hue: (time * 60 + i * 30) % 360,
+            life: 1.0,
+            char: chars[Math.floor(Math.random() * chars.length)],
+          });
+        }
+      }
+      
+      // Update and draw vocal particles (longer duration)
       for (let i = vocalParticlesRef.current.length - 1; i >= 0; i--) {
         const vp = vocalParticlesRef.current[i];
         vp.x += vp.vx;
         vp.y += vp.vy;
-        vp.life -= 0.01;
+        vp.life -= 0.005; // Slower decay for longer duration
         
         if (vp.life <= 0 || vp.y < -50) {
           vocalParticlesRef.current.splice(i, 1);
@@ -675,17 +779,24 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       
       // WAVES/STORM EFFECT (0:58) - Intense wave patterns and lightning
       if (isStormSection) {
-        // Intense waves
+        // Update screen effect progress for waves
+        screenEffectProgressRef.current.waves = Math.min(1, screenEffectProgressRef.current.waves + 0.02);
+        
+        // Intense waves - animate from center outward
         if (bass > 70) {
+          const progress = screenEffectProgressRef.current.waves;
           for (let wave = 0; wave < 5; wave++) {
-            waves.push({
-              x: centerX,
-              y: centerY,
-              radius: 0,
-              speed: 3 + (bass / 30) * finalIntensity,
-              alpha: 0.5 * finalIntensity,
-              hue: (bass * 2 + wave * 30 + time * 20) % 360,
-            });
+            const waveProgress = Math.max(0, progress - wave * 0.15);
+            if (waveProgress > 0) {
+              waves.push({
+                x: centerX,
+                y: centerY,
+                radius: waveProgress * 50, // Start from center with progress
+                speed: 3 + (bass / 30) * finalIntensity,
+                alpha: 0.5 * finalIntensity * waveProgress,
+                hue: (bass * 2 + wave * 30 + time * 20) % 360,
+              });
+            }
           }
         }
         
@@ -709,6 +820,9 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
             hue: (treble * 2 + time * 100) % 360,
           });
         }
+      } else {
+        // Reset wave progress when not in storm section
+        screenEffectProgressRef.current.waves = Math.max(0, screenEffectProgressRef.current.waves - 0.05);
       }
       
       // Update and draw lightning
@@ -744,30 +858,37 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       
       // GUITAR EFFECTS (1:15) - String-like horizontal lines
       if (isGuitarSection && mid > 90) {
+        // Update screen effect progress for guitar strings
+        screenEffectProgressRef.current.guitar = Math.min(1, screenEffectProgressRef.current.guitar + 0.03);
+        
         const guitarIntensity = mid / 255;
         const numStrings = 6;
+        const progress = screenEffectProgressRef.current.guitar;
+        
         for (let str = 0; str < numStrings; str++) {
           const stringY = canvas.height / 2 + (str - numStrings / 2) * 40;
           const stringHue = (mid * 2 + str * 30 + time * 30) % 360;
           
-          // Vibrating string effect
+          // Vibrating string effect - animate from left to right
           ctx.save();
           ctx.strokeStyle = `hsl(${stringHue}, 100%, 60%)`;
           ctx.lineWidth = 2 + guitarIntensity * 2;
-          ctx.globalAlpha = 0.6 * finalIntensity;
+          ctx.globalAlpha = 0.6 * finalIntensity * progress;
           ctx.beginPath();
-          for (let x = 0; x < canvas.width; x += 2) {
+          const startX = 0;
+          const endX = canvas.width * progress; // Animate across screen
+          for (let x = startX; x < endX; x += 2) {
             const y = stringY + Math.sin(time * 5 + x * 0.01 + str) * (mid / 10) * finalIntensity;
-            if (x === 0) ctx.moveTo(x, y);
+            if (x === startX) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
           }
           ctx.stroke();
           ctx.restore();
           
           // Chord visualization
-          if (mid > 150) {
+          if (mid > 150 && progress > 0.5) {
             guitarStringsRef.current.push({
-              x: Math.random() * canvas.width,
+              x: Math.random() * canvas.width * progress,
               y: stringY,
               amplitude: mid / 5,
               frequency: 0.02 + str * 0.01,
@@ -776,6 +897,9 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
             });
           }
         }
+      } else {
+        // Reset guitar progress when not in guitar section
+        screenEffectProgressRef.current.guitar = Math.max(0, screenEffectProgressRef.current.guitar - 0.05);
       }
       
       // Update and draw guitar string effects
@@ -810,7 +934,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
             pulsatingRingsRef.current.push({
               radius: 0,
               speed: 4 + ring * 2,
-              alpha: 0.7 * finalIntensity,
+              alpha: 0.49 * finalIntensity, // Dimmed by 30% (0.7 * 0.7 = 0.49)
               hue: (bass * 2 + ring * 60 + time * 40) % 360,
               maxRadius: 500,
             });
@@ -857,6 +981,21 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       
       // FINALE EFFECT (3:50-end) - All systems go
       if (isFinaleSection) {
+        // Continuous music notes from bottom during finale
+        const chars = ['♪', '♫', '♬', '♭', '♮', '♯', '♪'];
+        for (let i = 0; i < Math.floor(8 * finalIntensity); i++) {
+          vocalParticlesRef.current.push({
+            x: Math.random() * canvas.width,
+            y: canvas.height + 20,
+            vx: (Math.random() - 0.5) * 0.5,
+            vy: -2 - Math.random() * 2,
+            size: 12 + Math.random() * 8,
+            hue: (mid * 2 + i * 30 + time * 40) % 360,
+            life: 1.0,
+            char: chars[Math.floor(Math.random() * chars.length)],
+          });
+        }
+        
         // Confetti
         if (Math.random() > 0.7) {
           for (let i = 0; i < 10; i++) {
@@ -891,7 +1030,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
             pulsatingRingsRef.current.push({
               radius: 0,
               speed: 5 + Math.random() * 3,
-              alpha: 0.8 * finalIntensity,
+              alpha: 0.56 * finalIntensity, // Dimmed by 30% (0.8 * 0.7 = 0.56)
               hue: (bass * 2 + i * 72 + time * 50) % 360,
               maxRadius: 600,
             });
@@ -950,13 +1089,13 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         ctx.restore();
       });
       
-      // Pulsating rings around cube - audio reactive (enhanced with time intensity)
+      // Pulsating rings around cube - audio reactive (enhanced with time intensity, dimmed 30%)
       if (bass > 60 && effectIntensity > 0.2) {
         const ringIntensity = isLullSection ? 0.5 : finalIntensity;
         pulsatingRingsRef.current.push({
           radius: 0,
           speed: 2 + (bass / 40) * tempoMultiplier * timeIntensityMultiplier,
-          alpha: 0.6 * ringIntensity,
+          alpha: 0.42 * ringIntensity, // Dimmed by 30% (0.6 * 0.7 = 0.42)
           hue: (bass * 2 + time * 30) % 360,
           maxRadius: 300 + (bass * 2) * timeIntensityMultiplier,
         });
@@ -974,16 +1113,16 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
         
         ctx.save();
-        ctx.globalAlpha = ring.alpha;
+        ctx.globalAlpha = ring.alpha; // Already dimmed in creation
         ctx.strokeStyle = `hsl(${ring.hue}, 100%, 60%)`;
         ctx.lineWidth = 3;
         ctx.beginPath();
         ctx.arc(centerX, centerY, ring.radius, 0, Math.PI * 2);
         ctx.stroke();
         
-        // Draw multiple concentric rings for better effect
+        // Draw multiple concentric rings for better effect (also dimmed)
         if (ring.radius > 20) {
-          ctx.globalAlpha = ring.alpha * 0.5;
+          ctx.globalAlpha = ring.alpha * 0.5; // Dimmed inner ring
           ctx.beginPath();
           ctx.arc(centerX, centerY, ring.radius - 15, 0, Math.PI * 2);
           ctx.stroke();
@@ -1101,38 +1240,64 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // Audio Wave Bars at Top and Bottom - FIXED ORIENTATION
-      const barHeight = 80;
+      // Audio Wave Bars at Top and Bottom - ENHANCED with more activity
+      const barHeight = 100; // Increased from 80 for more dramatic effect
       
-      // Top bars - extend DOWNWARD from top edge
+      // Top bars - extend DOWNWARD from top edge with enhanced effects
       const topBarWidth = canvas.width / bufferLength;
       for (let i = 0; i < bufferLength; i++) {
-        const barValue = (dataArray[i] / 255) * barHeight * effectIntensity;
+        const barValue = (dataArray[i] / 255) * barHeight * finalIntensity;
         const hue = (i / bufferLength) * 360 + time * 30;
+        const pulse = 1 + Math.sin(time * 5 + i * 0.1) * 0.2; // Pulsing effect
         
         if (barValue > 2) {
-          const gradient = ctx.createLinearGradient(i * topBarWidth, 0, i * topBarWidth, barValue);
-          gradient.addColorStop(0, `hsla(${hue}, 100%, 60%, 0.8)`);
-          gradient.addColorStop(1, `hsla(${hue + 60}, 100%, 50%, 0.4)`);
+          // Enhanced gradient with more color variation
+          const gradient = ctx.createLinearGradient(i * topBarWidth, 0, i * topBarWidth, barValue * pulse);
+          gradient.addColorStop(0, `hsla(${hue}, 100%, 70%, 0.9)`);
+          gradient.addColorStop(0.5, `hsla(${hue + 30}, 100%, 60%, 0.7)`);
+          gradient.addColorStop(1, `hsla(${hue + 60}, 100%, 50%, 0.5)`);
           
           ctx.fillStyle = gradient;
-          ctx.fillRect(i * topBarWidth, 0, topBarWidth - 1, barValue);
+          ctx.fillRect(i * topBarWidth, 0, topBarWidth - 1, barValue * pulse);
+          
+          // Glow effect around bars
+          if (barValue > barHeight * 0.5) {
+            ctx.save();
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
+            ctx.globalAlpha = 0.3 * finalIntensity;
+            ctx.fillRect(i * topBarWidth - 2, 0, topBarWidth + 3, barValue * pulse);
+            ctx.restore();
+          }
         }
       }
       
-      // Bottom bars - extend UPWARD from bottom edge
+      // Bottom bars - extend UPWARD from bottom edge with enhanced effects
       const bottomBarWidth = canvas.width / bufferLength;
       for (let i = 0; i < bufferLength; i++) {
-        const barValue = (dataArray[i] / 255) * barHeight * effectIntensity;
+        const barValue = (dataArray[i] / 255) * barHeight * finalIntensity;
         const hue = (i / bufferLength) * 360 + time * 30;
+        const pulse = 1 + Math.sin(time * 5 + i * 0.1) * 0.2; // Pulsing effect
         
         if (barValue > 2) {
-          const gradient = ctx.createLinearGradient(i * bottomBarWidth, canvas.height - barValue, i * bottomBarWidth, canvas.height);
-          gradient.addColorStop(0, `hsla(${hue}, 100%, 60%, 0.8)`);
-          gradient.addColorStop(1, `hsla(${hue + 60}, 100%, 50%, 0.4)`);
+          // Enhanced gradient with more color variation
+          const gradient = ctx.createLinearGradient(i * bottomBarWidth, canvas.height - barValue * pulse, i * bottomBarWidth, canvas.height);
+          gradient.addColorStop(0, `hsla(${hue}, 100%, 70%, 0.9)`);
+          gradient.addColorStop(0.5, `hsla(${hue + 30}, 100%, 60%, 0.7)`);
+          gradient.addColorStop(1, `hsla(${hue + 60}, 100%, 50%, 0.5)`);
           
           ctx.fillStyle = gradient;
-          ctx.fillRect(i * bottomBarWidth, canvas.height - barValue, bottomBarWidth - 1, barValue);
+          ctx.fillRect(i * bottomBarWidth, canvas.height - barValue * pulse, bottomBarWidth - 1, barValue * pulse);
+          
+          // Glow effect around bars
+          if (barValue > barHeight * 0.5) {
+            ctx.save();
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
+            ctx.globalAlpha = 0.3 * finalIntensity;
+            ctx.fillRect(i * bottomBarWidth - 2, canvas.height - barValue * pulse, bottomBarWidth + 3, barValue * pulse);
+            ctx.restore();
+          }
         }
       }
       
@@ -1290,14 +1455,18 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         ctx.restore();
       }
       
-      // Extended tempo-based flowing lines effect - Enhanced with time intensity
+      // Extended tempo-based flowing lines effect - Enhanced with time intensity and screen animation
       if (treble > 80 && effectIntensity > 0.2 && !isLullSection) {
+        // Update screen effect progress for flowing lines
+        screenEffectProgressRef.current.flowingLines = Math.min(1, screenEffectProgressRef.current.flowingLines + 0.02);
+        
         ctx.save();
-        ctx.globalAlpha = 0.4 * finalIntensity;
+        const progress = screenEffectProgressRef.current.flowingLines;
+        ctx.globalAlpha = 0.4 * finalIntensity * progress;
         ctx.strokeStyle = `hsl(${(treble * 3 + time * 50) % 360}, 100%, 70%)`;
         ctx.lineWidth = 2;
         
-        // Multiple wave layers for depth
+        // Multiple wave layers for depth - animate from left to right
         const numLayers = isFinaleSection ? 5 : 3;
         for (let layer = 0; layer < numLayers; layer++) {
           ctx.beginPath();
@@ -1305,32 +1474,49 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
           const amplitude = (treble / 3) * finalIntensity * tempoMultiplier * (1 + layer * 0.3);
           const frequency = 2 + (tempoMultiplier - 1) * 0.5;
           
-          for (let i = 0; i < canvas.width; i += 2) {
+          const startX = 0;
+          const endX = canvas.width * progress; // Animate across screen
+          let firstPoint = true;
+          for (let i = startX; i < endX; i += 2) {
             const x = i;
             const y = canvas.height / 2 + Math.sin(time * frequency + i * 0.01 + layerOffset) * amplitude;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
+            if (firstPoint) {
+              ctx.moveTo(x, y);
+              firstPoint = false;
+            } else {
+              ctx.lineTo(x, y);
+            }
           }
           ctx.stroke();
         }
         
-        // Horizontal extension waves
+        // Horizontal extension waves - animate from left to right
         const numWaves = isFinaleSection ? 4 : 2;
         for (let wave = 0; wave < numWaves; wave++) {
           ctx.beginPath();
           const waveY = canvas.height / 2 + (wave - numWaves / 2) * 100;
           const waveAmplitude = (treble / 4) * finalIntensity * tempoMultiplier;
           
-          for (let i = 0; i < canvas.width; i += 2) {
+          const startX = 0;
+          const endX = canvas.width * progress; // Animate across screen
+          let firstPoint = true;
+          for (let i = startX; i < endX; i += 2) {
             const x = i;
             const y = waveY + Math.sin(time * tempoMultiplier + i * 0.015) * waveAmplitude;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
+            if (firstPoint) {
+              ctx.moveTo(x, y);
+              firstPoint = false;
+            } else {
+              ctx.lineTo(x, y);
+            }
           }
           ctx.stroke();
         }
         
         ctx.restore();
+      } else {
+        // Reset flowing lines progress when not active
+        screenEffectProgressRef.current.flowingLines = Math.max(0, screenEffectProgressRef.current.flowingLines - 0.05);
       }
       
       // Custom rotating cube cursor
@@ -1416,6 +1602,9 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
     return () => {
       window.removeEventListener('resize', resizeCanvas);
       window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mouseleave', handleMouseLeave);
       window.removeEventListener('click', handleMouseClick);
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);

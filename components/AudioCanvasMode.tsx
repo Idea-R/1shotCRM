@@ -18,6 +18,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
   const [error, setError] = useState<string | null>(null);
   const [volume, setVolume] = useState(0.7);
   const [isMuted, setIsMuted] = useState(false);
+  const [showEndModal, setShowEndModal] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const animationFrameRef = useRef<number>();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -252,6 +253,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       audio.onended = () => {
         console.log('[AudioCanvasMode] Audio ended');
         setIsPlaying(false);
+        setShowEndModal(true);
       };
 
       return () => {
@@ -449,10 +451,10 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       // Clear canvas completely (no ghost effect)
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      // Volume affects effect intensity
-      const effectIntensity = isMuted ? 0 : volume;
+      // Volume affects effect intensity - maintain minimum visual state when muted
+      const effectIntensity = isMuted ? 0.25 : volume; // Minimum 0.25 for idle state
       
-      if (!isPlaying) {
+      if (!isPlaying && !showEndModal) {
         animationFrameRef.current = requestAnimationFrame(draw);
         return;
       }
@@ -544,11 +546,11 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // Periodic burst effects from center - volume affected
-      if (time - lastBurstTime > 2.5 && effectIntensity > 0.3) {
+      // Periodic burst effects from center - volume affected (performance limit)
+      if (time - lastBurstTime > 2.5 && effectIntensity > 0.3 && bursts.length < 50) {
         lastBurstTime = time;
         const numBursts = Math.floor(15 * effectIntensity);
-        for (let i = 0; i < numBursts; i++) {
+        for (let i = 0; i < numBursts && bursts.length < 50; i++) {
           const angle = (Math.PI * 2 * i) / numBursts;
           const speed = 3 + Math.random() * 4;
           const type = ['particle', 'line', 'circle'][Math.floor(Math.random() * 3)] as 'particle' | 'line' | 'circle';
@@ -565,7 +567,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // Update and draw bursts
+      // Update and draw bursts (performance: cleanup off-screen)
       for (let i = bursts.length - 1; i >= 0; i--) {
         const b = bursts[i];
         b.x += b.vx;
@@ -574,7 +576,8 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         b.vx *= 0.98;
         b.vy *= 0.98;
         
-        if (b.life <= 0 || b.x < -50 || b.x > canvas.width + 50 || b.y < -50 || b.y > canvas.height + 50) {
+        // More aggressive cleanup - remove if off-screen or dead
+        if (b.life <= 0 || b.x < -100 || b.x > canvas.width + 100 || b.y < -100 || b.y > canvas.height + 100) {
           bursts.splice(i, 1);
           continue;
         }
@@ -623,7 +626,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       }
       
       // VOCAL EFFECTS (0:26, 3:14) - Text-like particles flowing upward
-      if (isVocalSection && mid > 100) {
+      if (isVocalSection && mid > 100 && vocalParticlesRef.current.length < 200) {
         // Vocal frequency range visualization (200-2000 Hz roughly maps to mid frequencies)
         const vocalIntensity = mid / 255;
         for (let i = 0; i < Math.floor(5 * vocalIntensity * finalIntensity); i++) {
@@ -659,21 +662,21 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         ctx.restore();
       }
       
-      // Mouse trail music notes - create notes behind cursor
+      // Mouse trail music notes - create notes behind cursor (fewer but larger)
       if (mouseTrailRef.current.length > 1 && mouse.x > 0 && mouse.y > 0) {
         const trailLength = mouseTrailRef.current.length;
-        // Create notes from trail positions (every 3rd position to avoid clutter)
-        for (let i = Math.max(0, trailLength - 10); i < trailLength; i += 3) {
+        // Create notes from trail positions (every 6th position - reduced frequency)
+        for (let i = Math.max(0, trailLength - 8); i < trailLength; i += 6) {
           const trailPos = mouseTrailRef.current[i];
           const age = Date.now() - trailPos.time;
-          if (age < 200) { // Only create notes from recent trail positions
+          if (age < 200 && vocalParticlesRef.current.length < 200) { // Performance limit
             const chars = ['♪', '♫', '♬', '♭', '♮', '♯'];
             vocalParticlesRef.current.push({
               x: trailPos.x,
               y: trailPos.y,
               vx: (Math.random() - 0.5) * 0.3,
               vy: -0.5 - Math.random() * 0.5,
-              size: 8 + Math.random() * 4, // Smaller for trail
+              size: 24 + Math.random() * 12, // 200% larger (8*3 = 24, 4*3 = 12)
               hue: (time * 50 + i * 20) % 360,
               life: 1.0,
               char: chars[Math.floor(Math.random() * chars.length)],
@@ -683,7 +686,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       }
       
       // Click and hold music notes
-      if (isMouseDownRef.current && mouse.x > 0 && mouse.y > 0) {
+      if (isMouseDownRef.current && mouse.x > 0 && mouse.y > 0 && vocalParticlesRef.current.length < 200) {
         const chars = ['♪', '♫', '♬', '♭', '♮', '♯'];
         for (let i = 0; i < 2; i++) {
           vocalParticlesRef.current.push({
@@ -720,7 +723,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       }
       
       // SPARKS EFFECT (0:45) - Enhanced spark particles
-      if (isSparksSection && treble > 80) {
+      if (isSparksSection && treble > 80 && sparkParticlesRef.current.length < 150) {
         const sparkIntensity = treble / 255;
         for (let i = 0; i < Math.floor(8 * sparkIntensity * finalIntensity); i++) {
           const angle = Math.random() * Math.PI * 2;
@@ -782,8 +785,8 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         // Update screen effect progress for waves
         screenEffectProgressRef.current.waves = Math.min(1, screenEffectProgressRef.current.waves + 0.02);
         
-        // Intense waves - animate from center outward
-        if (bass > 70) {
+        // Intense waves - animate from center outward (limit to 30 waves)
+        if (bass > 70 && waves.length < 30) {
           const progress = screenEffectProgressRef.current.waves;
           for (let wave = 0; wave < 5; wave++) {
             const waveProgress = Math.max(0, progress - wave * 0.15);
@@ -934,7 +937,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
             pulsatingRingsRef.current.push({
               radius: 0,
               speed: 4 + ring * 2,
-              alpha: 0.49 * finalIntensity, // Dimmed by 30% (0.7 * 0.7 = 0.49)
+              alpha: 0.35 * finalIntensity, // Further dimmed (0.49 * 0.7 ≈ 0.35)
               hue: (bass * 2 + ring * 60 + time * 40) % 360,
               maxRadius: 500,
             });
@@ -957,13 +960,13 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // MUSIC POPS EFFECT (3:33) - Explosive effects
-      if (isMusicPopsSection && bass > 100) {
+      // MUSIC POPS EFFECT (3:33) - Explosive effects (performance limit)
+      if (isMusicPopsSection && bass > 100 && bursts.length < 50) {
         // Screen-wide explosions
-        for (let pop = 0; pop < 5; pop++) {
+        for (let pop = 0; pop < 5 && bursts.length < 50; pop++) {
           const popX = Math.random() * canvas.width;
           const popY = Math.random() * canvas.height;
-          for (let i = 0; i < 20; i++) {
+          for (let i = 0; i < 20 && bursts.length < 50; i++) {
             const angle = (Math.PI * 2 * i) / 20;
             bursts.push({
               x: popX,
@@ -979,25 +982,27 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // FINALE EFFECT (3:50-end) - All systems go
+      // FINALE EFFECT (3:50-end) - All systems go (reduced music notes)
       if (isFinaleSection) {
-        // Continuous music notes from bottom during finale
+        // Continuous music notes from bottom during finale (reduced spawn rate)
         const chars = ['♪', '♫', '♬', '♭', '♮', '♯', '♪'];
-        for (let i = 0; i < Math.floor(8 * finalIntensity); i++) {
-          vocalParticlesRef.current.push({
-            x: Math.random() * canvas.width,
-            y: canvas.height + 20,
-            vx: (Math.random() - 0.5) * 0.5,
-            vy: -2 - Math.random() * 2,
-            size: 12 + Math.random() * 8,
-            hue: (mid * 2 + i * 30 + time * 40) % 360,
-            life: 1.0,
-            char: chars[Math.floor(Math.random() * chars.length)],
-          });
+        if (vocalParticlesRef.current.length < 200) {
+          for (let i = 0; i < Math.floor(4 * finalIntensity); i++) { // Reduced from 8 to 4
+            vocalParticlesRef.current.push({
+              x: Math.random() * canvas.width,
+              y: canvas.height + 20,
+              vx: (Math.random() - 0.5) * 0.5,
+              vy: -2 - Math.random() * 2,
+              size: 12 + Math.random() * 8,
+              hue: (mid * 2 + i * 30 + time * 40) % 360,
+              life: 1.0,
+              char: chars[Math.floor(Math.random() * chars.length)],
+            });
+          }
         }
         
-        // Confetti
-        if (Math.random() > 0.7) {
+        // Confetti (performance limit)
+        if (Math.random() > 0.7 && confettiRef.current.length < 100) {
           for (let i = 0; i < 10; i++) {
             confettiRef.current.push({
               x: Math.random() * canvas.width,
@@ -1030,7 +1035,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
             pulsatingRingsRef.current.push({
               radius: 0,
               speed: 5 + Math.random() * 3,
-              alpha: 0.56 * finalIntensity, // Dimmed by 30% (0.8 * 0.7 = 0.56)
+              alpha: 0.4 * finalIntensity, // Further dimmed (0.56 * 0.7 ≈ 0.4)
               hue: (bass * 2 + i * 72 + time * 50) % 360,
               maxRadius: 600,
             });
@@ -1089,13 +1094,13 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         ctx.restore();
       });
       
-      // Pulsating rings around cube - audio reactive (enhanced with time intensity, dimmed 30%)
-      if (bass > 60 && effectIntensity > 0.2) {
+      // Pulsating rings around cube - audio reactive (further dimmed, reduced frequency by 25%)
+      if (bass > 75 && effectIntensity > 0.2 && Math.random() > 0.25) { // Higher threshold + 25% reduction
         const ringIntensity = isLullSection ? 0.5 : finalIntensity;
         pulsatingRingsRef.current.push({
           radius: 0,
           speed: 2 + (bass / 40) * tempoMultiplier * timeIntensityMultiplier,
-          alpha: 0.42 * ringIntensity, // Dimmed by 30% (0.6 * 0.7 = 0.42)
+          alpha: 0.3 * ringIntensity, // Further dimmed (0.42 * 0.7 ≈ 0.3)
           hue: (bass * 2 + time * 30) % 360,
           maxRadius: 300 + (bass * 2) * timeIntensityMultiplier,
         });
@@ -1142,13 +1147,13 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         });
       }
       
-      // Update and draw waves
+      // Update and draw waves (performance: limit and cleanup)
       for (let i = waves.length - 1; i >= 0; i--) {
         const wave = waves[i];
         wave.radius += wave.speed;
         wave.alpha -= 0.015;
         
-        if (wave.alpha <= 0 || wave.radius > Math.max(canvas.width, canvas.height)) {
+        if (wave.alpha <= 0 || wave.radius > Math.max(canvas.width, canvas.height) || waves.length > 30) {
           waves.splice(i, 1);
           continue;
         }
@@ -1240,25 +1245,27 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // Audio Wave Bars at Top and Bottom - ENHANCED with more activity
-      const barHeight = 100; // Increased from 80 for more dramatic effect
+      // Audio Wave Bars at Top and Bottom - FULL WIDTH coverage
+      const barHeight = 100;
       
-      // Top bars - extend DOWNWARD from top edge with enhanced effects
+      // Top bars - extend DOWNWARD from top edge, full width coverage
       const topBarWidth = canvas.width / bufferLength;
       for (let i = 0; i < bufferLength; i++) {
         const barValue = (dataArray[i] / 255) * barHeight * finalIntensity;
         const hue = (i / bufferLength) * 360 + time * 30;
-        const pulse = 1 + Math.sin(time * 5 + i * 0.1) * 0.2; // Pulsing effect
+        const pulse = 1 + Math.sin(time * 5 + i * 0.1) * 0.2;
         
         if (barValue > 2) {
-          // Enhanced gradient with more color variation
-          const gradient = ctx.createLinearGradient(i * topBarWidth, 0, i * topBarWidth, barValue * pulse);
+          const x = (i / bufferLength) * canvas.width; // Ensure full width coverage
+          const barW = Math.max(1, topBarWidth); // Minimum 1px width
+          
+          const gradient = ctx.createLinearGradient(x, 0, x, barValue * pulse);
           gradient.addColorStop(0, `hsla(${hue}, 100%, 70%, 0.9)`);
           gradient.addColorStop(0.5, `hsla(${hue + 30}, 100%, 60%, 0.7)`);
           gradient.addColorStop(1, `hsla(${hue + 60}, 100%, 50%, 0.5)`);
           
           ctx.fillStyle = gradient;
-          ctx.fillRect(i * topBarWidth, 0, topBarWidth - 1, barValue * pulse);
+          ctx.fillRect(x, 0, barW, barValue * pulse);
           
           // Glow effect around bars
           if (barValue > barHeight * 0.5) {
@@ -1266,28 +1273,30 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
             ctx.shadowBlur = 10;
             ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
             ctx.globalAlpha = 0.3 * finalIntensity;
-            ctx.fillRect(i * topBarWidth - 2, 0, topBarWidth + 3, barValue * pulse);
+            ctx.fillRect(x - 2, 0, barW + 3, barValue * pulse);
             ctx.restore();
           }
         }
       }
       
-      // Bottom bars - extend UPWARD from bottom edge with enhanced effects
+      // Bottom bars - extend UPWARD from bottom edge, full width coverage
       const bottomBarWidth = canvas.width / bufferLength;
       for (let i = 0; i < bufferLength; i++) {
         const barValue = (dataArray[i] / 255) * barHeight * finalIntensity;
         const hue = (i / bufferLength) * 360 + time * 30;
-        const pulse = 1 + Math.sin(time * 5 + i * 0.1) * 0.2; // Pulsing effect
+        const pulse = 1 + Math.sin(time * 5 + i * 0.1) * 0.2;
         
         if (barValue > 2) {
-          // Enhanced gradient with more color variation
-          const gradient = ctx.createLinearGradient(i * bottomBarWidth, canvas.height - barValue * pulse, i * bottomBarWidth, canvas.height);
+          const x = (i / bufferLength) * canvas.width; // Ensure full width coverage
+          const barW = Math.max(1, bottomBarWidth); // Minimum 1px width
+          
+          const gradient = ctx.createLinearGradient(x, canvas.height - barValue * pulse, x, canvas.height);
           gradient.addColorStop(0, `hsla(${hue}, 100%, 70%, 0.9)`);
           gradient.addColorStop(0.5, `hsla(${hue + 30}, 100%, 60%, 0.7)`);
           gradient.addColorStop(1, `hsla(${hue + 60}, 100%, 50%, 0.5)`);
           
           ctx.fillStyle = gradient;
-          ctx.fillRect(i * bottomBarWidth, canvas.height - barValue * pulse, bottomBarWidth - 1, barValue * pulse);
+          ctx.fillRect(x, canvas.height - barValue * pulse, barW, barValue * pulse);
           
           // Glow effect around bars
           if (barValue > barHeight * 0.5) {
@@ -1295,20 +1304,21 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
             ctx.shadowBlur = 10;
             ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
             ctx.globalAlpha = 0.3 * finalIntensity;
-            ctx.fillRect(i * bottomBarWidth - 2, canvas.height - barValue * pulse, bottomBarWidth + 3, barValue * pulse);
+            ctx.fillRect(x - 2, canvas.height - barValue * pulse, barW + 3, barValue * pulse);
             ctx.restore();
           }
         }
       }
       
-      // 3D Rotating Cube in center - Enhanced with time intensity
-      const pulseFactor = 1 + Math.sin(time * 0.5) * 0.15; // Slow pulse
+      // 3D Rotating Cube in center - Enhanced with time intensity and minimum size
+      const pulseFactor = 1 + Math.sin(time * 0.5) * 0.15;
       const cubeRotationSpeed = isLullSection ? 0.5 : timeIntensityMultiplier;
       cubeRotationX += (0.002 + (mid / 5000)) * effectIntensity * cubeRotationSpeed;
       cubeRotationY += (0.003 + (bass / 5000)) * effectIntensity * cubeRotationSpeed;
       cubeRotationZ += (0.002 + (treble / 5000)) * effectIntensity * cubeRotationSpeed;
       
-      const cubeSize = (60 + (average / 15)) * pulseFactor * finalIntensity;
+      const minCubeSize = 40; // Minimum cube size
+      const cubeSize = Math.max(minCubeSize, (60 + (average / 15)) * pulseFactor * finalIntensity);
       const vertices = [
         [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
         [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]
@@ -1376,7 +1386,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       
       ctx.restore();
       
-      // Update and draw click explosions
+      // Update and draw click explosions (performance limit)
       for (let i = clickExplosionsRef.current.length - 1; i >= 0; i--) {
         const explosion = clickExplosionsRef.current[i];
         explosion.life -= 0.02;
@@ -1389,7 +1399,8 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
           p.vy *= 0.95;
           p.life -= 0.02;
           
-          if (p.life <= 0) {
+          // More aggressive cleanup
+          if (p.life <= 0 || p.x < -100 || p.x > canvas.width + 100 || p.y < -100 || p.y > canvas.height + 100) {
             explosion.particles.splice(j, 1);
             continue;
           }
@@ -1403,7 +1414,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
           ctx.restore();
         }
         
-        if (explosion.life <= 0 || explosion.particles.length === 0) {
+        if (explosion.life <= 0 || explosion.particles.length === 0 || clickExplosionsRef.current.length > 10) {
           clickExplosionsRef.current.splice(i, 1);
         }
       }
@@ -1775,22 +1786,44 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         </button>
         
         <div className="flex flex-col items-center gap-2">
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={isMuted ? 0 : volume}
-            onChange={handleVolumeChange}
-            className="volume-slider"
-            style={{
-              WebkitAppearance: 'slider-vertical' as any,
-              width: '8px',
-              height: '200px',
-              cursor: 'pointer',
-            }}
-          />
-          <span className="text-white text-xs font-medium">{Math.round((isMuted ? 0 : volume) * 100)}%</span>
+          <div className="relative">
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={isMuted ? 0 : volume}
+              onChange={handleVolumeChange}
+              className="volume-slider"
+              style={{
+                WebkitAppearance: 'slider-vertical' as any,
+                width: '8px',
+                height: '200px',
+                cursor: 'pointer',
+                background: `linear-gradient(to top, 
+                  rgba(59, 130, 246, 0.8) 0%, 
+                  rgba(59, 130, 246, 0.8) ${(isMuted ? 0 : volume) * 100}%, 
+                  rgba(75, 85, 99, 0.5) ${(isMuted ? 0 : volume) * 100}%, 
+                  rgba(75, 85, 99, 0.5) 100%)`,
+                borderRadius: '4px',
+                outline: 'none',
+              }}
+            />
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background: `linear-gradient(to top, 
+                  rgba(59, 130, 246, 0.3) 0%, 
+                  rgba(59, 130, 246, 0.3) ${(isMuted ? 0 : volume) * 100}%, 
+                  transparent ${(isMuted ? 0 : volume) * 100}%)`,
+                borderRadius: '4px',
+                boxShadow: `0 0 10px rgba(59, 130, 246, ${(isMuted ? 0 : volume) * 0.5})`,
+              }}
+            />
+          </div>
+          <span className="text-white text-xs font-medium bg-gray-800/80 px-2 py-1 rounded backdrop-blur-sm">
+            {Math.round((isMuted ? 0 : volume) * 100)}%
+          </span>
         </div>
         
         {/* Play/Pause button integrated */}
@@ -1812,7 +1845,98 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       >
         <X className="w-6 h-6" />
       </button>
+      
+      {/* End-of-Song Modal with Glitchy Text */}
+      {showEndModal && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => {
+            setShowEndModal(false);
+            handleClose();
+          }}
+        >
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-gray-900/95 border border-gray-700 rounded-lg p-8 max-w-md mx-4 text-center relative overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GlitchyText text="Thanks for watching! Follow me on Suno at MadXent." />
+            <button
+              onClick={() => {
+                setShowEndModal(false);
+                handleClose();
+              }}
+              className="mt-6 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
+              Close
+            </button>
+          </motion.div>
+        </motion.div>
+      )}
     </motion.div>
+  );
+}
+
+// Glitchy Text Component
+function GlitchyText({ text }: { text: string }) {
+  const [displayedText, setDisplayedText] = useState('');
+  const [glitchChars, setGlitchChars] = useState<Array<{ char: string; glitch: boolean }>>([]);
+  
+  useEffect(() => {
+    let currentIndex = 0;
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+    
+    const interval = setInterval(() => {
+      if (currentIndex < text.length) {
+        // Reveal next character
+        setDisplayedText(text.slice(0, currentIndex + 1));
+        
+        // Add glitch effect to current and previous characters
+        const newGlitchChars = Array.from({ length: currentIndex + 1 }, (_, i) => ({
+          char: i === currentIndex ? text[i] : text[i],
+          glitch: Math.random() > 0.7,
+        }));
+        setGlitchChars(newGlitchChars);
+        
+        currentIndex++;
+      } else {
+        // Continue glitch effect on all characters
+        setGlitchChars(prev => prev.map(g => ({
+          char: g.char,
+          glitch: Math.random() > 0.85,
+        })));
+      }
+    }, 50);
+    
+    return () => clearInterval(interval);
+  }, [text]);
+  
+  return (
+    <div className="text-2xl font-bold text-white relative">
+      {displayedText.split('').map((char, i) => {
+        const glitch = glitchChars[i]?.glitch || false;
+        const glitchChar = glitch ? String.fromCharCode(33 + Math.floor(Math.random() * 94)) : char;
+        
+        return (
+          <span
+            key={i}
+            className={`inline-block ${glitch ? 'text-red-500' : 'text-white'}`}
+            style={{
+              transform: glitch ? `translate(${Math.random() * 4 - 2}px, ${Math.random() * 4 - 2}px)` : 'none',
+              textShadow: glitch
+                ? `2px 0 0 #ff0000, -2px 0 0 #00ffff`
+                : 'none',
+              transition: 'all 0.1s',
+            }}
+          >
+            {glitchChar}
+          </span>
+        );
+      })}
+    </div>
   );
 }
 

@@ -35,6 +35,7 @@ export default function KanbanColumn({ stage, deals }: KanbanColumnProps) {
         >
           <SortableContext items={deals.map(d => d.id)} strategy={verticalListSortingStrategy}>
             <div className="space-y-3">
+              {/* Render all deals - no limit on number of deals per stage */}
               {deals.map((deal) => (
                 <KanbanCard key={deal.id} deal={deal} />
               ))}

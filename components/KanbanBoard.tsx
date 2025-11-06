@@ -11,6 +11,7 @@ import {
   useSensors,
   DragStartEvent,
   DragEndEvent,
+  DragOverEvent,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -30,6 +31,7 @@ interface KanbanBoardProps {
 
 export default function KanbanBoard({ deals, stages, onDealUpdate, onTitleUpdate }: KanbanBoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -42,11 +44,19 @@ export default function KanbanBoard({ deals, stages, onDealUpdate, onTitleUpdate
     setActiveId(event.active.id as string);
   };
 
+  const handleDragOver = (event: DragOverEvent) => {
+    const overId = event.over?.id as string;
+    if (overId) {
+      setOverId(overId);
+    }
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
 
     if (!over) {
       setActiveId(null);
+      setOverId(null);
       return;
     }
 
@@ -59,6 +69,7 @@ export default function KanbanBoard({ deals, stages, onDealUpdate, onTitleUpdate
     }
 
     setActiveId(null);
+    setOverId(null);
   };
 
   const getDealsForStage = (stageId: string) => {
@@ -72,17 +83,23 @@ export default function KanbanBoard({ deals, stages, onDealUpdate, onTitleUpdate
       sensors={sensors}
       collisionDetection={closestCorners}
       onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
       <div className="flex gap-4 overflow-x-auto pb-4">
         {stages.map((stage) => {
           const stageDeals = getDealsForStage(stage.id);
+          const isOverStage = overId === `stage-${stage.id}`;
           return (
             <KanbanColumn
               key={stage.id}
               stage={stage}
               deals={stageDeals}
               onTitleUpdate={onTitleUpdate}
+              isDragging={!!activeId}
+              isOver={isOverStage}
+              activeDealId={activeId}
+              overId={overId}
             />
           );
         })}

@@ -6,16 +6,18 @@ import { CSS } from '@dnd-kit/utilities';
 import { Deal } from '@/lib/supabase';
 import Link from 'next/link';
 import { format } from 'date-fns';
-import { DollarSign, User, GripVertical, Edit2, Check, X } from 'lucide-react';
+import { DollarSign, User, GripVertical, Edit2, Check, X, Plus } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 interface KanbanCardProps {
   deal: Deal;
   isDragging?: boolean;
+  isOver?: boolean;
   onTitleUpdate?: (dealId: string, newTitle: string) => void;
+  stageColor?: string;
 }
 
-export default function KanbanCard({ deal, isDragging, onTitleUpdate }: KanbanCardProps) {
+export default function KanbanCard({ deal, isDragging, isOver, onTitleUpdate, stageColor }: KanbanCardProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(deal.title);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -33,6 +35,9 @@ export default function KanbanCard({ deal, isDragging, onTitleUpdate }: KanbanCa
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isSortableDragging || isDragging ? 0.5 : 1,
+    boxShadow: isOver && stageColor 
+      ? `0 0 20px ${stageColor}40, 0 0 40px ${stageColor}20` 
+      : undefined,
   };
 
   const handleTitleClick = (e: React.MouseEvent) => {
@@ -82,12 +87,25 @@ export default function KanbanCard({ deal, isDragging, onTitleUpdate }: KanbanCa
     <div
       ref={setNodeRef}
       style={style}
-      className={`bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-4 hover:shadow-md transition-shadow ${
-        isSortableDragging || isDragging ? 'shadow-lg' : ''
+      className={`bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-4 hover:shadow-md transition-all duration-200 ${
+        isSortableDragging || isDragging ? 'shadow-lg opacity-50' : ''
+      } ${
+        isOver 
+          ? 'opacity-40 border-2 border-dashed' 
+          : ''
       }`}
     >
-      {/* Drag Handle */}
-      <div className="flex items-start gap-2 mb-2 group">
+      {isOver ? (
+        <div className="flex flex-col items-center justify-center h-full min-h-[120px] gap-2">
+          <div className="w-12 h-12 rounded-lg border-2 border-dashed border-gray-400 dark:border-gray-500 flex items-center justify-center">
+            <Plus className="w-6 h-6 text-gray-400 dark:text-gray-500" />
+          </div>
+          <span className="text-sm text-gray-500 dark:text-gray-400">Drop here</span>
+        </div>
+      ) : (
+        <>
+          {/* Drag Handle */}
+          <div className="flex items-start gap-2 mb-2 group">
         <div
           {...attributes}
           {...listeners}
@@ -169,6 +187,8 @@ export default function KanbanCard({ deal, isDragging, onTitleUpdate }: KanbanCa
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

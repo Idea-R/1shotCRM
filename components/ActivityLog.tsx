@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Activity, Task } from '@/lib/supabase';
 import { format } from 'date-fns';
 import { Plus, FileText, Phone, Mail, Calendar, CheckSquare } from 'lucide-react';
@@ -20,13 +21,20 @@ const activityIcons = {
 };
 
 export default function ActivityLog({ dealId, contactId, activities }: ActivityLogProps) {
+  const router = useRouter();
   const [newActivity, setNewActivity] = useState({ type: 'note', title: '', description: '' });
   const [isAdding, setIsAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleAddActivity = async () => {
-    if (!newActivity.title.trim()) return;
+    if (!newActivity.title.trim()) {
+      setError('Title is required');
+      return;
+    }
 
     setIsAdding(true);
+    setError(null);
+    
     try {
       const response = await fetch('/api/activities', {
         method: 'POST',
@@ -38,12 +46,21 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
         }),
       });
 
-      if (response.ok) {
-        window.location.reload();
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Reset form
+        setNewActivity({ type: 'note', title: '', description: '' });
+        setIsAdding(false);
+        // Refresh the page data
+        router.refresh();
+      } else {
+        setError(data.error || 'Failed to add activity');
+        setIsAdding(false);
       }
     } catch (error) {
       console.error('Error adding activity:', error);
-    } finally {
+      setError('Network error. Please try again.');
       setIsAdding(false);
     }
   };
@@ -108,8 +125,13 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
             </div>
             <div className="flex items-center justify-end gap-2">
               <button
-                onClick={() => setIsAdding(false)}
+                onClick={() => {
+                  setIsAdding(false);
+                  setError(null);
+                  setNewActivity({ type: 'note', title: '', description: '' });
+                }}
                 className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                disabled={isAdding}
               >
                 Cancel
               </button>
@@ -121,6 +143,11 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
                 {isAdding ? 'Adding...' : 'Add Activity'}
               </button>
             </div>
+            {error && (
+              <div className="text-red-600 dark:text-red-400 text-sm mt-2">
+                {error}
+              </div>
+            )}
           </div>
         </div>
       )}

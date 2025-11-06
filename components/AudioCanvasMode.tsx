@@ -52,6 +52,61 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
     life: number;
     hue: number;
   }>>([]);
+  
+  // Time-based effect systems
+  const vocalParticlesRef = useRef<Array<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    size: number;
+    hue: number;
+    life: number;
+    char: string;
+  }>>([]);
+  const sparkParticlesRef = useRef<Array<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    size: number;
+    hue: number;
+    life: number;
+    trail: Array<{ x: number; y: number }>;
+  }>>([]);
+  const lightningBranchesRef = useRef<Array<{
+    x: number;
+    y: number;
+    branches: Array<{ x: number; y: number; vx: number; vy: number }>;
+    life: number;
+    hue: number;
+  }>>([]);
+  const guitarStringsRef = useRef<Array<{
+    x: number;
+    y: number;
+    amplitude: number;
+    frequency: number;
+    hue: number;
+    life: number;
+  }>>([]);
+  const confettiRef = useRef<Array<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    size: number;
+    hue: number;
+    life: number;
+    rotation: number;
+    rotationSpeed: number;
+  }>>([]);
+  const starsRef = useRef<Array<{
+    x: number;
+    y: number;
+    size: number;
+    brightness: number;
+    twinkle: number;
+  }>>([]);
 
   useEffect(() => {
     // Load audio from Supabase storage
@@ -349,8 +404,61 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       const mid = dataArray.slice(15, 80).reduce((a, b) => a + b) / 65;
       const treble = dataArray.slice(80, 256).reduce((a, b) => a + b) / 176;
       
+      // Get audio time for time-based effects
+      const currentTime = audioRef.current?.currentTime || 0;
+      
       // Calculate tempo estimate from bass frequency
       const tempoMultiplier = 1 + (bass / 255) * 2; // 1x to 3x multiplier
+      
+      // Time-based intensity multiplier
+      let timeIntensityMultiplier = 1;
+      let isVocalSection = false;
+      let isSparksSection = false;
+      let isStormSection = false;
+      let isGuitarSection = false;
+      let isRampUpSection = false;
+      let isLullSection = false;
+      let isMusicPopsSection = false;
+      let isFinaleSection = false;
+      
+      // Determine current section and intensity
+      if (currentTime >= 26 && currentTime < 45) {
+        isVocalSection = true;
+        timeIntensityMultiplier = 1.2;
+      } else if (currentTime >= 45 && currentTime < 58) {
+        isSparksSection = true;
+        timeIntensityMultiplier = 1.3;
+      } else if (currentTime >= 58 && currentTime < 75) {
+        isStormSection = true;
+        timeIntensityMultiplier = 1.5;
+      } else if (currentTime >= 75 && currentTime < 124) {
+        isGuitarSection = true;
+        timeIntensityMultiplier = 1.4;
+      } else if (currentTime >= 124 && currentTime < 135) {
+        isRampUpSection = true;
+        const rampProgress = (currentTime - 124) / 11; // 0 to 1
+        timeIntensityMultiplier = 1.2 + rampProgress * 0.8; // 1.2 to 2.0
+      } else if (currentTime >= 135 && currentTime < 157) {
+        timeIntensityMultiplier = 2.0;
+      } else if (currentTime >= 157 && currentTime < 194) {
+        isLullSection = true;
+        timeIntensityMultiplier = 0.6;
+      } else if (currentTime >= 194 && currentTime < 213) {
+        isVocalSection = true;
+        const vocalRampProgress = (currentTime - 194) / 19;
+        timeIntensityMultiplier = 1.0 + vocalRampProgress * 1.0; // 1.0 to 2.0
+      } else if (currentTime >= 213 && currentTime < 230) {
+        timeIntensityMultiplier = 2.0;
+      } else if (currentTime >= 230 && currentTime < 250) {
+        isMusicPopsSection = true;
+        timeIntensityMultiplier = 2.5;
+      } else if (currentTime >= 250) {
+        isFinaleSection = true;
+        timeIntensityMultiplier = 3.0;
+      }
+      
+      // Apply time intensity to base intensity
+      const finalIntensity = effectIntensity * timeIntensityMultiplier;
       
       const time = Date.now() * 0.001;
       const centerX = canvas.width / 2;
@@ -450,14 +558,407 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // Pulsating rings around cube - audio reactive
+      // VOCAL EFFECTS (0:26, 3:14) - Text-like particles flowing upward
+      if (isVocalSection && mid > 100) {
+        // Vocal frequency range visualization (200-2000 Hz roughly maps to mid frequencies)
+        const vocalIntensity = mid / 255;
+        for (let i = 0; i < Math.floor(5 * vocalIntensity * finalIntensity); i++) {
+          const chars = ['♪', '♫', '♬', '♭', '♮', '♯', '♪'];
+          vocalParticlesRef.current.push({
+            x: Math.random() * canvas.width,
+            y: canvas.height + 20,
+            vx: (Math.random() - 0.5) * 0.5,
+            vy: -2 - Math.random() * 2,
+            size: 12 + Math.random() * 8,
+            hue: (mid * 2 + i * 30 + time * 40) % 360,
+            life: 1.0,
+            char: chars[Math.floor(Math.random() * chars.length)],
+          });
+        }
+        
+        // Waveform patterns
+        ctx.save();
+        ctx.globalAlpha = 0.3 * finalIntensity;
+        ctx.strokeStyle = `hsl(${(mid * 2 + time * 50) % 360}, 100%, 70%)`;
+        ctx.lineWidth = 2;
+        for (let wave = 0; wave < 3; wave++) {
+          ctx.beginPath();
+          const waveY = canvas.height / 2 + (wave - 1) * 80;
+          for (let i = 0; i < canvas.width; i += 2) {
+            const x = i;
+            const y = waveY + Math.sin(time * 3 + i * 0.02 + wave) * (mid / 5) * finalIntensity;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      
+      // Update and draw vocal particles
+      for (let i = vocalParticlesRef.current.length - 1; i >= 0; i--) {
+        const vp = vocalParticlesRef.current[i];
+        vp.x += vp.vx;
+        vp.y += vp.vy;
+        vp.life -= 0.01;
+        
+        if (vp.life <= 0 || vp.y < -50) {
+          vocalParticlesRef.current.splice(i, 1);
+          continue;
+        }
+        
+        ctx.save();
+        ctx.globalAlpha = vp.life * 0.8 * finalIntensity;
+        ctx.fillStyle = `hsl(${vp.hue}, 100%, 60%)`;
+        ctx.font = `${vp.size}px Arial`;
+        ctx.fillText(vp.char, vp.x, vp.y);
+        ctx.restore();
+      }
+      
+      // SPARKS EFFECT (0:45) - Enhanced spark particles
+      if (isSparksSection && treble > 80) {
+        const sparkIntensity = treble / 255;
+        for (let i = 0; i < Math.floor(8 * sparkIntensity * finalIntensity); i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 3 + Math.random() * 5;
+          sparkParticlesRef.current.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            size: 2 + Math.random() * 4,
+            hue: (treble * 3 + i * 20 + time * 60) % 360,
+            life: 1.0,
+            trail: [],
+          });
+        }
+      }
+      
+      // Update and draw spark particles
+      for (let i = sparkParticlesRef.current.length - 1; i >= 0; i--) {
+        const sp = sparkParticlesRef.current[i];
+        sp.trail.push({ x: sp.x, y: sp.y });
+        if (sp.trail.length > 5) sp.trail.shift();
+        
+        sp.x += sp.vx;
+        sp.y += sp.vy;
+        sp.vx *= 0.98;
+        sp.vy *= 0.98;
+        sp.life -= 0.015;
+        
+        if (sp.life <= 0 || sp.x < -50 || sp.x > canvas.width + 50 || sp.y < -50 || sp.y > canvas.height + 50) {
+          sparkParticlesRef.current.splice(i, 1);
+          continue;
+        }
+        
+        // Draw trail
+        ctx.save();
+        ctx.strokeStyle = `hsl(${sp.hue}, 100%, 60%)`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let j = 0; j < sp.trail.length - 1; j++) {
+          const alpha = (j / sp.trail.length) * sp.life * 0.6 * finalIntensity;
+          ctx.globalAlpha = alpha;
+          if (j === 0) ctx.moveTo(sp.trail[j].x, sp.trail[j].y);
+          ctx.lineTo(sp.trail[j + 1].x, sp.trail[j + 1].y);
+        }
+        ctx.stroke();
+        
+        // Draw spark
+        ctx.globalAlpha = sp.life * 0.9 * finalIntensity;
+        ctx.fillStyle = `hsl(${sp.hue}, 100%, 70%)`;
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, sp.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      
+      // WAVES/STORM EFFECT (0:58) - Intense wave patterns and lightning
+      if (isStormSection) {
+        // Intense waves
+        if (bass > 70) {
+          for (let wave = 0; wave < 5; wave++) {
+            waves.push({
+              x: centerX,
+              y: centerY,
+              radius: 0,
+              speed: 3 + (bass / 30) * finalIntensity,
+              alpha: 0.5 * finalIntensity,
+              hue: (bass * 2 + wave * 30 + time * 20) % 360,
+            });
+          }
+        }
+        
+        // Lightning effects
+        if (treble > 120 && Math.random() > 0.95) {
+          const lightningX = Math.random() * canvas.width;
+          const branches: Array<{ x: number; y: number; vx: number; vy: number }> = [];
+          for (let i = 0; i < 8; i++) {
+            branches.push({
+              x: lightningX,
+              y: 0,
+              vx: (Math.random() - 0.5) * 2,
+              vy: 5 + Math.random() * 3,
+            });
+          }
+          lightningBranchesRef.current.push({
+            x: lightningX,
+            y: 0,
+            branches,
+            life: 1.0,
+            hue: (treble * 2 + time * 100) % 360,
+          });
+        }
+      }
+      
+      // Update and draw lightning
+      for (let i = lightningBranchesRef.current.length - 1; i >= 0; i--) {
+        const lightning = lightningBranchesRef.current[i];
+        lightning.life -= 0.05;
+        
+        if (lightning.life <= 0) {
+          lightningBranchesRef.current.splice(i, 1);
+          continue;
+        }
+        
+        ctx.save();
+        ctx.strokeStyle = `hsl(${lightning.hue}, 100%, 90%)`;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = lightning.life * 0.9 * finalIntensity;
+        
+        lightning.branches.forEach(branch => {
+          ctx.beginPath();
+          ctx.moveTo(lightning.x, lightning.y);
+          let x = lightning.x;
+          let y = lightning.y;
+          for (let step = 0; step < 20; step++) {
+            x += branch.vx + (Math.random() - 0.5) * 10;
+            y += branch.vy;
+            ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        });
+        
+        ctx.restore();
+      }
+      
+      // GUITAR EFFECTS (1:15) - String-like horizontal lines
+      if (isGuitarSection && mid > 90) {
+        const guitarIntensity = mid / 255;
+        const numStrings = 6;
+        for (let str = 0; str < numStrings; str++) {
+          const stringY = canvas.height / 2 + (str - numStrings / 2) * 40;
+          const stringHue = (mid * 2 + str * 30 + time * 30) % 360;
+          
+          // Vibrating string effect
+          ctx.save();
+          ctx.strokeStyle = `hsl(${stringHue}, 100%, 60%)`;
+          ctx.lineWidth = 2 + guitarIntensity * 2;
+          ctx.globalAlpha = 0.6 * finalIntensity;
+          ctx.beginPath();
+          for (let x = 0; x < canvas.width; x += 2) {
+            const y = stringY + Math.sin(time * 5 + x * 0.01 + str) * (mid / 10) * finalIntensity;
+            if (x === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+          ctx.restore();
+          
+          // Chord visualization
+          if (mid > 150) {
+            guitarStringsRef.current.push({
+              x: Math.random() * canvas.width,
+              y: stringY,
+              amplitude: mid / 5,
+              frequency: 0.02 + str * 0.01,
+              hue: stringHue,
+              life: 1.0,
+            });
+          }
+        }
+      }
+      
+      // Update and draw guitar string effects
+      for (let i = guitarStringsRef.current.length - 1; i >= 0; i--) {
+        const gs = guitarStringsRef.current[i];
+        gs.life -= 0.02;
+        
+        if (gs.life <= 0) {
+          guitarStringsRef.current.splice(i, 1);
+          continue;
+        }
+        
+        ctx.save();
+        ctx.strokeStyle = `hsl(${gs.hue}, 100%, 70%)`;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = gs.life * 0.5 * finalIntensity;
+        ctx.beginPath();
+        for (let x = gs.x - 50; x < gs.x + 50; x += 2) {
+          const y = gs.y + Math.sin(time * 10 + x * gs.frequency) * gs.amplitude * gs.life;
+          if (x === gs.x - 50) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+      
+      // RAMP UP EFFECT (2:04-2:15) - Progressive intensity
+      if (isRampUpSection) {
+        // Expanding anticipation rings
+        if (bass > 80) {
+          for (let ring = 0; ring < 3; ring++) {
+            pulsatingRingsRef.current.push({
+              radius: 0,
+              speed: 4 + ring * 2,
+              alpha: 0.7 * finalIntensity,
+              hue: (bass * 2 + ring * 60 + time * 40) % 360,
+              maxRadius: 500,
+            });
+          }
+        }
+      }
+      
+      // LULL EFFECT (2:37) - Calm, reduced intensity
+      if (isLullSection) {
+        // Softer, slower waves
+        if (mid > 60 && Math.random() > 0.7) {
+          waves.push({
+            x: centerX,
+            y: centerY,
+            radius: 0,
+            speed: 1,
+            alpha: 0.2 * finalIntensity,
+            hue: (mid * 1.5 + time * 10) % 360,
+          });
+        }
+      }
+      
+      // MUSIC POPS EFFECT (3:33) - Explosive effects
+      if (isMusicPopsSection && bass > 100) {
+        // Screen-wide explosions
+        for (let pop = 0; pop < 5; pop++) {
+          const popX = Math.random() * canvas.width;
+          const popY = Math.random() * canvas.height;
+          for (let i = 0; i < 20; i++) {
+            const angle = (Math.PI * 2 * i) / 20;
+            bursts.push({
+              x: popX,
+              y: popY,
+              vx: Math.cos(angle) * (5 + Math.random() * 5),
+              vy: Math.sin(angle) * (5 + Math.random() * 5),
+              size: 3 + Math.random() * 5,
+              hue: (angle * 57.3 + time * 100) % 360,
+              life: 1.0,
+              type: 'particle',
+            });
+          }
+        }
+      }
+      
+      // FINALE EFFECT (3:50-end) - All systems go
+      if (isFinaleSection) {
+        // Confetti
+        if (Math.random() > 0.7) {
+          for (let i = 0; i < 10; i++) {
+            confettiRef.current.push({
+              x: Math.random() * canvas.width,
+              y: -10,
+              vx: (Math.random() - 0.5) * 2,
+              vy: 2 + Math.random() * 3,
+              size: 4 + Math.random() * 6,
+              hue: (Math.random() * 360),
+              life: 1.0,
+              rotation: Math.random() * Math.PI * 2,
+              rotationSpeed: (Math.random() - 0.5) * 0.2,
+            });
+          }
+        }
+        
+        // Stars
+        if (starsRef.current.length < 50) {
+          starsRef.current.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            size: 1 + Math.random() * 3,
+            brightness: Math.random(),
+            twinkle: Math.random() * Math.PI * 2,
+          });
+        }
+        
+        // Maximum intensity on all effects
+        if (bass > 80) {
+          for (let i = 0; i < 5; i++) {
+            pulsatingRingsRef.current.push({
+              radius: 0,
+              speed: 5 + Math.random() * 3,
+              alpha: 0.8 * finalIntensity,
+              hue: (bass * 2 + i * 72 + time * 50) % 360,
+              maxRadius: 600,
+            });
+          }
+        }
+      }
+      
+      // Update and draw confetti
+      for (let i = confettiRef.current.length - 1; i >= 0; i--) {
+        const conf = confettiRef.current[i];
+        conf.x += conf.vx;
+        conf.y += conf.vy;
+        conf.vy += 0.1; // Gravity
+        conf.rotation += conf.rotationSpeed;
+        conf.life -= 0.005;
+        
+        if (conf.life <= 0 || conf.y > canvas.height + 20) {
+          confettiRef.current.splice(i, 1);
+          continue;
+        }
+        
+        ctx.save();
+        ctx.translate(conf.x, conf.y);
+        ctx.rotate(conf.rotation);
+        ctx.globalAlpha = conf.life * 0.9 * finalIntensity;
+        ctx.fillStyle = `hsl(${conf.hue}, 100%, 60%)`;
+        ctx.fillRect(-conf.size / 2, -conf.size / 2, conf.size, conf.size);
+        ctx.restore();
+      }
+      
+      // Update and draw stars
+      starsRef.current.forEach(star => {
+        star.twinkle += 0.05;
+        const brightness = 0.5 + Math.sin(star.twinkle) * 0.5;
+        
+        ctx.save();
+        ctx.globalAlpha = brightness * 0.8 * finalIntensity;
+        ctx.fillStyle = `hsl(${(time * 30) % 360}, 100%, ${50 + brightness * 50}%)`;
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Star spikes
+        ctx.strokeStyle = `hsl(${(time * 30) % 360}, 100%, 80%)`;
+        ctx.lineWidth = 1;
+        for (let spike = 0; spike < 4; spike++) {
+          const angle = (Math.PI * 2 * spike) / 4;
+          ctx.beginPath();
+          ctx.moveTo(star.x, star.y);
+          ctx.lineTo(
+            star.x + Math.cos(angle) * star.size * 2,
+            star.y + Math.sin(angle) * star.size * 2
+          );
+          ctx.stroke();
+        }
+        ctx.restore();
+      });
+      
+      // Pulsating rings around cube - audio reactive (enhanced with time intensity)
       if (bass > 60 && effectIntensity > 0.2) {
+        const ringIntensity = isLullSection ? 0.5 : finalIntensity;
         pulsatingRingsRef.current.push({
           radius: 0,
-          speed: 2 + (bass / 40) * tempoMultiplier,
-          alpha: 0.6 * effectIntensity,
+          speed: 2 + (bass / 40) * tempoMultiplier * timeIntensityMultiplier,
+          alpha: 0.6 * ringIntensity,
           hue: (bass * 2 + time * 30) % 360,
-          maxRadius: 300 + (bass * 2),
+          maxRadius: 300 + (bass * 2) * timeIntensityMultiplier,
         });
       }
       
@@ -635,13 +1136,14 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // 3D Rotating Cube in center - SLOW and PULSING
+      // 3D Rotating Cube in center - Enhanced with time intensity
       const pulseFactor = 1 + Math.sin(time * 0.5) * 0.15; // Slow pulse
-      cubeRotationX += (0.002 + (mid / 5000)) * effectIntensity; // Much slower
-      cubeRotationY += (0.003 + (bass / 5000)) * effectIntensity;
-      cubeRotationZ += (0.002 + (treble / 5000)) * effectIntensity;
+      const cubeRotationSpeed = isLullSection ? 0.5 : timeIntensityMultiplier;
+      cubeRotationX += (0.002 + (mid / 5000)) * effectIntensity * cubeRotationSpeed;
+      cubeRotationY += (0.003 + (bass / 5000)) * effectIntensity * cubeRotationSpeed;
+      cubeRotationZ += (0.002 + (treble / 5000)) * effectIntensity * cubeRotationSpeed;
       
-      const cubeSize = (60 + (average / 15)) * pulseFactor * effectIntensity;
+      const cubeSize = (60 + (average / 15)) * pulseFactor * finalIntensity;
       const vertices = [
         [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
         [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]
@@ -682,8 +1184,8 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         [2, 3, 7, 6], [0, 3, 7, 4], [1, 2, 6, 5]
       ];
       
-      ctx.save();
-      ctx.globalAlpha = 0.7 * effectIntensity;
+        ctx.save();
+        ctx.globalAlpha = 0.7 * finalIntensity;
       
       faces.forEach((face, idx) => {
         const points = face.map(i => rotatedVertices[i]);
@@ -788,18 +1290,19 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         ctx.restore();
       }
       
-      // Extended tempo-based flowing lines effect
-      if (treble > 80 && effectIntensity > 0.2) {
+      // Extended tempo-based flowing lines effect - Enhanced with time intensity
+      if (treble > 80 && effectIntensity > 0.2 && !isLullSection) {
         ctx.save();
-        ctx.globalAlpha = 0.4 * effectIntensity;
+        ctx.globalAlpha = 0.4 * finalIntensity;
         ctx.strokeStyle = `hsl(${(treble * 3 + time * 50) % 360}, 100%, 70%)`;
         ctx.lineWidth = 2;
         
         // Multiple wave layers for depth
-        for (let layer = 0; layer < 3; layer++) {
+        const numLayers = isFinaleSection ? 5 : 3;
+        for (let layer = 0; layer < numLayers; layer++) {
           ctx.beginPath();
           const layerOffset = layer * 0.3;
-          const amplitude = (treble / 3) * effectIntensity * tempoMultiplier * (1 + layer * 0.3);
+          const amplitude = (treble / 3) * finalIntensity * tempoMultiplier * (1 + layer * 0.3);
           const frequency = 2 + (tempoMultiplier - 1) * 0.5;
           
           for (let i = 0; i < canvas.width; i += 2) {
@@ -812,10 +1315,11 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
         
         // Horizontal extension waves
-        for (let wave = 0; wave < 2; wave++) {
+        const numWaves = isFinaleSection ? 4 : 2;
+        for (let wave = 0; wave < numWaves; wave++) {
           ctx.beginPath();
-          const waveY = canvas.height / 2 + (wave - 0.5) * 100;
-          const waveAmplitude = (treble / 4) * effectIntensity * tempoMultiplier;
+          const waveY = canvas.height / 2 + (wave - numWaves / 2) * 100;
+          const waveAmplitude = (treble / 4) * finalIntensity * tempoMultiplier;
           
           for (let i = 0; i < canvas.width; i += 2) {
             const x = i;

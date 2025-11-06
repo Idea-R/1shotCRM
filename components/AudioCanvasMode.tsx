@@ -184,14 +184,35 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
 
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
+    
+    // Particle system
+    const particles: Array<{
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      size: number;
+      hue: number;
+      life: number;
+    }> = [];
+    
+    // Wave system
+    const waves: Array<{
+      x: number;
+      y: number;
+      radius: number;
+      speed: number;
+      alpha: number;
+      hue: number;
+    }> = [];
 
     const draw = () => {
       if (!analyser || !ctx) return;
 
       analyser.getByteFrequencyData(dataArray);
       
-      // Clear canvas with fade effect
-      ctx.fillStyle = 'rgba(17, 24, 39, 0.15)';
+      // Clear canvas with very subtle fade to keep background visible
+      ctx.fillStyle = 'rgba(17, 24, 39, 0.08)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
       if (!isPlaying) {
@@ -199,59 +220,154 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         return;
       }
       
-      // Draw audio-reactive visuals
-      const barWidth = canvas.width / bufferLength * 2.5;
-      let x = 0;
-      
-      for (let i = 0; i < bufferLength; i++) {
-        const barHeight = (dataArray[i] / 255) * canvas.height * 0.8;
-        
-        // Create gradient
-        const gradient = ctx.createLinearGradient(x, canvas.height, x, canvas.height - barHeight);
-        const hue = (i / bufferLength) * 360 + Date.now() * 0.05;
-        gradient.addColorStop(0, `hsl(${hue}, 100%, 50%)`);
-        gradient.addColorStop(1, `hsl(${hue + 60}, 100%, 70%)`);
-        
-        ctx.fillStyle = gradient;
-        ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
-        
-        // Mirror effect
-        ctx.fillRect(x, 0, barWidth - 1, barHeight);
-        
-        x += barWidth;
-      }
-      
-      // Beat detection and visual effects
       const average = dataArray.reduce((a, b) => a + b) / bufferLength;
       const bass = dataArray.slice(0, 10).reduce((a, b) => a + b) / 10;
+      const mid = dataArray.slice(10, 50).reduce((a, b) => a + b) / 40;
+      const treble = dataArray.slice(50, 128).reduce((a, b) => a + b) / 78;
       
-      if (bass > 100) {
-        // Beat detected - add pulse effect
+      const time = Date.now() * 0.001;
+      
+      // Subtle frequency bars - reduced opacity and size
+      const barWidth = canvas.width / bufferLength * 1.5;
+      let x = 0;
+      
+      for (let i = 0; i < bufferLength; i += 2) {
+        const barHeight = (dataArray[i] / 255) * canvas.height * 0.3; // Reduced from 0.8 to 0.3
+        
+        if (barHeight > 5) {
+          const gradient = ctx.createLinearGradient(x, canvas.height, x, canvas.height - barHeight);
+          const hue = (i / bufferLength) * 360 + time * 20;
+          gradient.addColorStop(0, `hsla(${hue}, 100%, 50%, 0.2)`); // Reduced opacity
+          gradient.addColorStop(1, `hsla(${hue + 60}, 100%, 70%, 0.3)`);
+          
+          ctx.fillStyle = gradient;
+          ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
+          
+          // Subtle mirror effect
+          ctx.fillRect(x, 0, barWidth - 1, barHeight * 0.5);
+        }
+        
+        x += barWidth * 2;
+      }
+      
+      // Expanding circles/waves on beats
+      if (bass > 80) {
+        waves.push({
+          x: canvas.width / 2,
+          y: canvas.height / 2,
+          radius: 0,
+          speed: 2 + (bass / 50),
+          alpha: 0.6,
+          hue: (bass * 2 + time * 30) % 360,
+        });
+      }
+      
+      // Update and draw waves
+      for (let i = waves.length - 1; i >= 0; i--) {
+        const wave = waves[i];
+        wave.radius += wave.speed;
+        wave.alpha -= 0.02;
+        
+        if (wave.alpha <= 0 || wave.radius > Math.max(canvas.width, canvas.height)) {
+          waves.splice(i, 1);
+          continue;
+        }
+        
         ctx.save();
-        ctx.globalAlpha = 0.4;
-        ctx.fillStyle = `hsl(${(bass * 2) % 360}, 100%, 50%)`;
+        ctx.globalAlpha = wave.alpha;
+        ctx.strokeStyle = `hsl(${wave.hue}, 100%, 60%)`;
+        ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.arc(canvas.width / 2, canvas.height / 2, bass * 3, 0, Math.PI * 2);
+        ctx.arc(wave.x, wave.y, wave.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      
+      // Particle effects on strong beats
+      if (average > 100) {
+        for (let i = 0; i < 3; i++) {
+          const angle = (Math.PI * 2 * i) / 3 + time;
+          const speed = 2 + (average / 50);
+          particles.push({
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            size: 3 + Math.random() * 4,
+            hue: (average * 3 + i * 60 + time * 50) % 360,
+            life: 1.0,
+          });
+        }
+      }
+      
+      // Update and draw particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.02;
+        p.vx *= 0.98;
+        p.vy *= 0.98;
+        
+        if (p.life <= 0 || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) {
+          particles.splice(i, 1);
+          continue;
+        }
+        
+        ctx.save();
+        ctx.globalAlpha = p.life * 0.8;
+        ctx.fillStyle = `hsl(${p.hue}, 100%, 60%)`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
       
-      // Add particle effects on beats
-      if (average > 120) {
-        for (let i = 0; i < 5; i++) {
-          const angle = (Math.PI * 2 * i) / 5;
-          const distance = average * 2;
+      // Rotating circles around center
+      if (mid > 90) {
+        const numCircles = 8;
+        for (let i = 0; i < numCircles; i++) {
+          const angle = (Math.PI * 2 * i) / numCircles + time;
+          const distance = 100 + mid;
           const px = canvas.width / 2 + Math.cos(angle) * distance;
           const py = canvas.height / 2 + Math.sin(angle) * distance;
           
           ctx.save();
-          ctx.globalAlpha = 0.6;
-          ctx.fillStyle = `hsl(${(average * 3 + i * 60) % 360}, 100%, 60%)`;
+          ctx.globalAlpha = 0.4;
+          ctx.fillStyle = `hsl(${(mid * 2 + i * 45 + time * 40) % 360}, 100%, 60%)`;
           ctx.beginPath();
-          ctx.arc(px, py, 10, 0, Math.PI * 2);
+          ctx.arc(px, py, 8 + (mid / 20), 0, Math.PI * 2);
           ctx.fill();
           ctx.restore();
         }
+      }
+      
+      // Central pulse on bass hits
+      if (bass > 100) {
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = `hsl(${(bass * 2 + time * 30) % 360}, 100%, 50%)`;
+        ctx.beginPath();
+        ctx.arc(canvas.width / 2, canvas.height / 2, bass * 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      
+      // Flowing lines effect
+      if (treble > 100) {
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        ctx.strokeStyle = `hsl(${(treble * 3 + time * 50) % 360}, 100%, 70%)`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i = 0; i < 20; i++) {
+          const x = (canvas.width / 20) * i;
+          const y = canvas.height / 2 + Math.sin(time * 2 + i * 0.5) * (treble / 3);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.restore();
       }
       
       animationFrameRef.current = requestAnimationFrame(draw);
@@ -367,40 +483,52 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         style={{ background: 'transparent' }}
       />
       
-      {/* Play button */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center z-20 gap-4">
-        {loading && (
-          <div className="text-white text-lg">Loading audio...</div>
-        )}
-        {error && (
-          <div className="text-red-400 text-sm max-w-md text-center px-4">
-            {error}
-            <div className="text-xs mt-2 text-gray-400">
-              Check browser console for detailed error logs
+      {/* Play button - hidden when playing for full audio experience */}
+      {!isPlaying && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center z-20 gap-4">
+          {loading && (
+            <div className="text-white text-lg">Loading audio...</div>
+          )}
+          {error && (
+            <div className="text-red-400 text-sm max-w-md text-center px-4">
+              {error}
+              <div className="text-xs mt-2 text-gray-400">
+                Check browser console for detailed error logs
+              </div>
             </div>
-          </div>
-        )}
+          )}
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={handlePlay}
+            disabled={loading || !!error || !audioUrl}
+            className={`w-24 h-24 rounded-full flex items-center justify-center shadow-2xl transition-colors ${
+              loading || !!error || !audioUrl
+                ? 'bg-gray-600 cursor-not-allowed opacity-50'
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
+          >
+            <Play className="w-12 h-12 ml-1" />
+          </motion.button>
+          {!loading && !error && audioUrl && (
+            <div className="text-white text-sm opacity-75">Ready to play</div>
+          )}
+        </div>
+      )}
+      
+      {/* Pause button - small, top-right when playing */}
+      {isPlaying && (
         <motion.button
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={handlePlay}
-          disabled={loading || !!error || !audioUrl}
-          className={`w-24 h-24 rounded-full flex items-center justify-center shadow-2xl transition-colors ${
-            loading || !!error || !audioUrl
-              ? 'bg-gray-600 cursor-not-allowed opacity-50'
-              : 'bg-blue-600 hover:bg-blue-700 text-white'
-          }`}
+          className="absolute top-4 left-4 z-20 w-16 h-16 rounded-full bg-blue-600/80 hover:bg-blue-700/90 text-white flex items-center justify-center shadow-lg backdrop-blur-sm transition-all"
         >
-          {isPlaying ? (
-            <Pause className="w-12 h-12" />
-          ) : (
-            <Play className="w-12 h-12 ml-1" />
-          )}
+          <Pause className="w-8 h-8" />
         </motion.button>
-        {!loading && !error && audioUrl && (
-          <div className="text-white text-sm opacity-75">Ready to play</div>
-        )}
-      </div>
+      )}
       
       {/* Close button */}
       <button

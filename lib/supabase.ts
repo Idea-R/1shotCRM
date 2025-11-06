@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://otbaeguavfmruyuadjva.supabase.co';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'dummy-key-for-build';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -34,6 +34,7 @@ export interface Deal {
   created_at: string;
   updated_at: string;
   contact?: Contact;
+  stage?: PipelineStage;
 }
 
 export interface Task {
@@ -46,6 +47,8 @@ export interface Task {
   deal_id?: string;
   created_at: string;
   updated_at: string;
+  contact?: Contact;
+  deal?: Deal;
 }
 
 export interface Activity {

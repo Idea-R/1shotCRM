@@ -6,11 +6,13 @@ import ActivityLog from '@/components/ActivityLog';
 import { DollarSign, Calendar, User, TrendingUp } from 'lucide-react';
 import { format } from 'date-fns';
 
-export default async function DealDetailPage({ params }: { params: { id: string } }) {
+export default async function DealDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  
   const { data: deal } = await supabase
     .from('deals')
     .select('*, contact:contacts(*), stage:pipeline_stages(*)')
-    .eq('id', params.id)
+    .eq('id', id)
     .single();
 
   if (!deal) {
@@ -20,13 +22,13 @@ export default async function DealDetailPage({ params }: { params: { id: string 
   const { data: activities } = await supabase
     .from('activities')
     .select('*')
-    .eq('deal_id', params.id)
+    .eq('deal_id', id)
     .order('created_at', { ascending: false });
 
   const { data: relatedTasks } = await supabase
     .from('tasks')
     .select('*')
-    .eq('deal_id', params.id)
+    .eq('deal_id', id)
     .order('created_at', { ascending: false });
 
   return (
@@ -86,7 +88,7 @@ export default async function DealDetailPage({ params }: { params: { id: string 
 
           {/* Middle Panel - Activity Log */}
           <div className="lg:col-span-2">
-            <ActivityLog dealId={params.id} activities={activities || []} />
+            <ActivityLog dealId={id} activities={activities || []} />
           </div>
         </div>
       </div>

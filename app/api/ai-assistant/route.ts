@@ -4,6 +4,13 @@ import { supabase } from '@/lib/supabase';
 
 export async function POST(req: NextRequest) {
   try {
+    if (!openai) {
+      return NextResponse.json(
+        { success: false, error: 'OpenAI API key not configured' },
+        { status: 500 }
+      );
+    }
+
     const { message, messages } = await req.json();
 
     // Get current CRM data for context

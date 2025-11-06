@@ -1,27 +1,56 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import MainLayout from '@/components/MainLayout';
-import { supabase } from '@/lib/supabase';
+import { supabase, Deal, Contact, Task, PipelineStage } from '@/lib/supabase';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Users, Briefcase, CheckSquare, DollarSign } from 'lucide-react';
+import { Users, Briefcase, CheckSquare, DollarSign } from 'lucide-react';
 
-export default async function DashboardPage() {
-  // Fetch data
-  const [contactsRes, dealsRes, tasksRes, stagesRes] = await Promise.all([
-    supabase.from('contacts').select('*'),
-    supabase.from('deals').select('*, contact:contacts(*)'),
-    supabase.from('tasks').select('*'),
-    supabase.from('pipeline_stages').select('*').order('order'),
-  ]);
+export default function DashboardPage() {
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [stages, setStages] = useState<PipelineStage[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const contacts = contactsRes.data || [];
-  const deals = dealsRes.data || [];
-  const tasks = tasksRes.data || [];
-  const stages = stagesRes.data || [];
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const [contactsRes, dealsRes, tasksRes, stagesRes] = await Promise.all([
+        supabase.from('contacts').select('*'),
+        supabase.from('deals').select('*, contact:contacts(*)'),
+        supabase.from('tasks').select('*'),
+        supabase.from('pipeline_stages').select('*').order('order'),
+      ]);
+
+      setContacts(contactsRes.data || []);
+      setDeals(dealsRes.data || []);
+      setTasks(tasksRes.data || []);
+      setStages(stagesRes.data || []);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="text-gray-500">Loading...</div>
+        </div>
+      </MainLayout>
+    );
+  }
 
   // Calculate metrics
   const totalDealsValue = deals.reduce((sum, deal) => sum + (deal.value || 0), 0);
   const activeDeals = deals.filter(d => d.stage_id && stages.find(s => s.name === 'Won' || s.name === 'Lost')?.id !== d.stage_id).length;
   const completedTasks = tasks.filter(t => t.completed).length;
-  const overdueTasks = tasks.filter(t => !t.completed && t.due_date && new Date(t.due_date) < new Date()).length;
 
   // Prepare chart data
   const dealsByStage = stages.map(stage => ({
@@ -169,4 +198,3 @@ export default async function DashboardPage() {
     </MainLayout>
   );
 }
-

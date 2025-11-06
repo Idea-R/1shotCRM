@@ -6,7 +6,8 @@ import { format } from 'date-fns';
 import { Plus, FileText, Phone, Mail, Calendar, CheckSquare } from 'lucide-react';
 
 interface ActivityLogProps {
-  dealId: string;
+  dealId?: string;
+  contactId?: string;
   activities: Activity[];
 }
 
@@ -18,7 +19,7 @@ const activityIcons = {
   task: CheckSquare,
 };
 
-export default function ActivityLog({ dealId, activities }: ActivityLogProps) {
+export default function ActivityLog({ dealId, contactId, activities }: ActivityLogProps) {
   const [newActivity, setNewActivity] = useState({ type: 'note', title: '', description: '' });
   const [isAdding, setIsAdding] = useState(false);
 
@@ -33,6 +34,7 @@ export default function ActivityLog({ dealId, activities }: ActivityLogProps) {
         body: JSON.stringify({
           ...newActivity,
           deal_id: dealId,
+          contact_id: contactId,
         }),
       });
 

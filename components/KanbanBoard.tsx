@@ -25,9 +25,10 @@ interface KanbanBoardProps {
   deals: Deal[];
   stages: PipelineStage[];
   onDealUpdate: (dealId: string, stageId: string) => void;
+  onTitleUpdate?: (dealId: string, newTitle: string) => void;
 }
 
-export default function KanbanBoard({ deals, stages, onDealUpdate }: KanbanBoardProps) {
+export default function KanbanBoard({ deals, stages, onDealUpdate, onTitleUpdate }: KanbanBoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -81,6 +82,7 @@ export default function KanbanBoard({ deals, stages, onDealUpdate }: KanbanBoard
               key={stage.id}
               stage={stage}
               deals={stageDeals}
+              onTitleUpdate={onTitleUpdate}
             />
           );
         })}

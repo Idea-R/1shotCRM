@@ -51,6 +51,10 @@ export default function PipelinePage() {
     }
   };
 
+  const handleTitleUpdate = async (dealId: string, newTitle: string) => {
+    setDeals(prev => prev.map(d => d.id === dealId ? { ...d, title: newTitle } : d));
+  };
+
   if (loading) {
     return (
       <MainLayout>
@@ -107,6 +111,7 @@ export default function PipelinePage() {
             deals={deals}
             stages={stages}
             onDealUpdate={handleDealUpdate}
+            onTitleUpdate={handleTitleUpdate}
           />
         ) : (
           <PipelineListView deals={deals} stages={stages} />

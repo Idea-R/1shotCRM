@@ -8,9 +8,10 @@ import KanbanCard from './KanbanCard';
 interface KanbanColumnProps {
   stage: PipelineStage;
   deals: Deal[];
+  onTitleUpdate?: (dealId: string, newTitle: string) => void;
 }
 
-export default function KanbanColumn({ stage, deals }: KanbanColumnProps) {
+export default function KanbanColumn({ stage, deals, onTitleUpdate }: KanbanColumnProps) {
   const { setNodeRef } = useDroppable({
     id: `stage-${stage.id}`,
   });
@@ -37,7 +38,7 @@ export default function KanbanColumn({ stage, deals }: KanbanColumnProps) {
             <div className="space-y-3">
               {/* Render all deals - no limit on number of deals per stage */}
               {deals.map((deal) => (
-                <KanbanCard key={deal.id} deal={deal} />
+                <KanbanCard key={deal.id} deal={deal} onTitleUpdate={onTitleUpdate} />
               ))}
               {deals.length === 0 && (
                 <div className="text-center py-8 text-gray-400 text-sm">

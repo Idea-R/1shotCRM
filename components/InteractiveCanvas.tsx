@@ -138,7 +138,14 @@ export default function InteractiveCanvas() {
           particle.x, particle.y, pulseSize * 4
         );
         gradient.addColorStop(0, particle.color);
-        gradient.addColorStop(0.5, particle.color + '80');
+        // Convert HSL to RGBA for opacity
+        const hslMatch = particle.color.match(/hsl\(([^)]+)\)/);
+        if (hslMatch) {
+          const [h, s, l] = hslMatch[1].split(',').map(v => parseFloat(v.trim()));
+          gradient.addColorStop(0.5, `hsla(${h}, ${s}%, ${l}%, 0.5)`);
+        } else {
+          gradient.addColorStop(0.5, particle.color);
+        }
         gradient.addColorStop(1, 'transparent');
         
         ctx.globalAlpha = alpha * 0.6;

@@ -120,8 +120,26 @@ Respond naturally and helpfully. When answering questions, provide specific deta
       let actionResult = null;
 
       if (lowerMessage.includes('contact') || lowerMessage.includes('person')) {
-        const nameMatch = message.match(/(?:name|called|named)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i) || 
-                         message.match(/create\s+(?:a\s+)?contact\s+(?:named|called|for)?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i);
+        // Improved name extraction - try multiple patterns
+        const namePatterns = [
+          /(?:name|called|named)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i,
+          /create\s+(?:a\s+)?contact\s+(?:named|called|for)?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i,
+          /contact\s+(?:named|called)?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i,
+        ];
+        
+        let nameMatch = null;
+        for (const pattern of namePatterns) {
+          const match = message.match(pattern);
+          if (match && match[1]) {
+            nameMatch = match[1].trim();
+            // Remove common trailing phrases
+            nameMatch = nameMatch.replace(/\s+with\s+email.*$/i, '');
+            nameMatch = nameMatch.replace(/\s+email.*$/i, '');
+            nameMatch = nameMatch.replace(/\s+phone.*$/i, '');
+            break;
+          }
+        }
+        
         const emailMatch = message.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/i);
         const phoneMatch = message.match(/(\+?[\d\s\-\(\)]{10,})/);
         const companyMatch = message.match(/(?:company|works?\s+at|from)\s+([A-Z][a-zA-Z0-9\s&]+)/i);
@@ -130,7 +148,7 @@ Respond naturally and helpfully. When answering questions, provide specific deta
           const { data, error } = await supabase
             .from('contacts')
             .insert({
-              name: nameMatch[1],
+              name: nameMatch,
               email: emailMatch ? emailMatch[1] : null,
               phone: phoneMatch ? phoneMatch[1] : null,
               company: companyMatch ? companyMatch[1] : null,
@@ -139,7 +157,7 @@ Respond naturally and helpfully. When answering questions, provide specific deta
             .single();
 
           if (!error && data) {
-            actionResult = `✅ Created contact: ${data.name}${data.email ? ` (${data.email})` : ''}${data.company ? ` at ${data.company}` : ''}`;
+            actionResult = `✅ Created contact: ${data.name}${data.email ? ` (${data.email})` : ''}${data.phone ? ` - Phone: ${data.phone}` : ''}${data.company ? ` at ${data.company}` : ''}`;
           } else {
             actionResult = `❌ Error creating contact: ${error?.message || 'Unknown error'}`;
           }

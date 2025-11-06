@@ -67,3 +67,27 @@ export interface Activity {
   created_by?: string;
 }
 
+export interface UserCredits {
+  credits: number;
+  plan: 'free' | 'pro' | 'enterprise';
+  total_used: number;
+}
+
+export interface Tag {
+  id: string;
+  name: string;
+  color: string;
+  created_at: string;
+}
+
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+  category: string;
+  variables: string[];
+  created_at: string;
+  updated_at: string;
+}
+

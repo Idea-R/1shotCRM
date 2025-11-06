@@ -31,6 +31,8 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
     .eq('deal_id', id)
     .order('created_at', { ascending: false });
 
+  // Note: Tags will be loaded client-side in DealInfoPanel component
+
   return (
     <MainLayout>
       <div className="max-w-7xl mx-auto space-y-6">

@@ -1,9 +1,12 @@
 'use client';
 
-import { Deal, Task } from '@/lib/supabase';
+import { Deal, Task, Tag } from '@/lib/supabase';
 import { format } from 'date-fns';
 import { MapPin, Calendar, User, FileText, CheckSquare } from 'lucide-react';
 import Link from 'next/link';
+import { TagBadge, TagSelector } from './TagSelector';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 
 interface DealInfoPanelProps {
   deal: Deal;
@@ -11,10 +14,38 @@ interface DealInfoPanelProps {
 }
 
 export default function DealInfoPanel({ deal, tasks }: DealInfoPanelProps) {
+  const [tags, setTags] = useState<Tag[]>([]);
+
+  useEffect(() => {
+    loadTags();
+  }, [deal.id]);
+
+  const loadTags = async () => {
+    const { data } = await supabase
+      .from('deal_tags')
+      .select('tag:tags(*)')
+      .eq('deal_id', deal.id);
+    
+    if (data) {
+      setTags(data.map((item: any) => item.tag));
+    }
+  };
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-6 space-y-6">
       <div>
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Deal Information</h3>
+        
+        {/* Tags */}
+        <div className="mb-4">
+          <label className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2 block">Tags</label>
+          <TagSelector
+            selectedTags={tags}
+            onTagsChange={setTags}
+            entityType="deal"
+            entityId={deal.id}
+          />
+        </div>
         
         <div className="space-y-4">
           <div>

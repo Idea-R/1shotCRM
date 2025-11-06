@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useState, useRef, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import AudioCanvasMode from '@/components/AudioCanvasMode';
+import { useSidebar } from '@/components/MainLayout';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -21,7 +22,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, credits, signOut } = useAuth();
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const { isCollapsed, setIsCollapsed } = useSidebar();
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [showAudioMode, setShowAudioMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -84,7 +85,7 @@ export default function Sidebar() {
   return (
     <>
       <div className={cn(
-        "hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all duration-300 z-30",
+        "hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all duration-300 z-30 pointer-events-auto",
         isCollapsed ? "md:w-16" : "md:w-64"
       )}>
         <div className="flex flex-col flex-grow border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 pt-5">

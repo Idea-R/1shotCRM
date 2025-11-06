@@ -15,6 +15,8 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const animationFrameRef = useRef<number>();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -22,20 +24,45 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
   useEffect(() => {
     // Load audio from Supabase storage
     const loadAudio = async () => {
+      console.log('[AudioCanvasMode] Starting audio load...');
+      setLoading(true);
+      setError(null);
+      
       try {
-        const { data, error } = await supabase.storage
+        console.log('[AudioCanvasMode] Attempting to download from Supabase storage...');
+        console.log('[AudioCanvasMode] Bucket: audio, File: CursorAllNight.mp3');
+        
+        const { data, error: downloadError } = await supabase.storage
           .from('audio')
           .download('CursorAllNight.mp3');
         
-        if (error) {
-          console.error('Error loading audio:', error);
+        if (downloadError) {
+          console.error('[AudioCanvasMode] Supabase download error:', downloadError);
+          console.error('[AudioCanvasMode] Error details:', JSON.stringify(downloadError, null, 2));
+          setError(`Failed to load audio: ${downloadError.message || 'Unknown error'}`);
+          setLoading(false);
           return;
         }
         
+        if (!data) {
+          console.error('[AudioCanvasMode] No data returned from Supabase');
+          setError('No audio data received from server');
+          setLoading(false);
+          return;
+        }
+        
+        console.log('[AudioCanvasMode] Audio downloaded successfully, size:', data.size, 'bytes');
+        console.log('[AudioCanvasMode] Creating object URL...');
+        
         const url = URL.createObjectURL(data);
+        console.log('[AudioCanvasMode] Object URL created:', url);
         setAudioUrl(url);
+        setLoading(false);
       } catch (error) {
-        console.error('Error creating audio URL:', error);
+        console.error('[AudioCanvasMode] Exception during audio load:', error);
+        console.error('[AudioCanvasMode] Error stack:', error instanceof Error ? error.stack : 'No stack');
+        setError(`Error loading audio: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        setLoading(false);
       }
     };
     
@@ -43,41 +70,85 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
   }, []);
 
   useEffect(() => {
-    if (!audioUrl) return;
+    if (!audioUrl) {
+      console.log('[AudioCanvasMode] No audioUrl, skipping Web Audio API initialization');
+      return;
+    }
 
-    // Initialize Web Audio API
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const analyserNode = ctx.createAnalyser();
-    analyserNode.fftSize = 256;
-    analyserNode.smoothingTimeConstant = 0.8;
+    console.log('[AudioCanvasMode] Initializing Web Audio API...');
     
-    setAudioContext(ctx);
-    setAnalyser(analyserNode);
+    try {
+      // Initialize Web Audio API
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      console.log('[AudioCanvasMode] AudioContext created, state:', ctx.state);
+      
+      const analyserNode = ctx.createAnalyser();
+      analyserNode.fftSize = 256;
+      analyserNode.smoothingTimeConstant = 0.8;
+      
+      setAudioContext(ctx);
+      setAnalyser(analyserNode);
 
-    // Create audio element
-    const audio = new Audio(audioUrl);
-    audio.crossOrigin = 'anonymous';
-    
-    // Connect audio to analyser
-    const source = ctx.createMediaElementSource(audio);
-    source.connect(analyserNode);
-    analyserNode.connect(ctx.destination);
-    
-    audioRef.current = audio;
+      // Create audio element
+      console.log('[AudioCanvasMode] Creating Audio element with URL:', audioUrl);
+      const audio = new Audio(audioUrl);
+      audio.crossOrigin = 'anonymous';
+      
+      // Add error handlers
+      audio.onerror = (e) => {
+        console.error('[AudioCanvasMode] Audio element error:', e);
+        console.error('[AudioCanvasMode] Audio error details:', {
+          code: audio.error?.code,
+          message: audio.error?.message,
+        });
+        setError(`Audio playback error: ${audio.error?.message || 'Unknown error'}`);
+      };
+      
+      audio.onloadstart = () => {
+        console.log('[AudioCanvasMode] Audio load started');
+      };
+      
+      audio.onloadeddata = () => {
+        console.log('[AudioCanvasMode] Audio data loaded');
+      };
+      
+      audio.oncanplay = () => {
+        console.log('[AudioCanvasMode] Audio can play');
+      };
+      
+      audio.oncanplaythrough = () => {
+        console.log('[AudioCanvasMode] Audio can play through');
+      };
+      
+      // Connect audio to analyser
+      console.log('[AudioCanvasMode] Connecting audio to analyser...');
+      const source = ctx.createMediaElementSource(audio);
+      source.connect(analyserNode);
+      analyserNode.connect(ctx.destination);
+      
+      audioRef.current = audio;
+      console.log('[AudioCanvasMode] Audio setup complete');
 
-    audio.onended = () => {
-      setIsPlaying(false);
-    };
+      audio.onended = () => {
+        console.log('[AudioCanvasMode] Audio ended');
+        setIsPlaying(false);
+      };
 
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      if (ctx.state !== 'closed') {
-        ctx.close();
-      }
-    };
+      return () => {
+        console.log('[AudioCanvasMode] Cleaning up audio...');
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current = null;
+        }
+        if (ctx.state !== 'closed') {
+          ctx.close();
+        }
+      };
+    } catch (error) {
+      console.error('[AudioCanvasMode] Error initializing Web Audio API:', error);
+      console.error('[AudioCanvasMode] Error stack:', error instanceof Error ? error.stack : 'No stack');
+      setError(`Web Audio API error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }, [audioUrl]);
 
   useEffect(() => {
@@ -181,18 +252,55 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
   }, [analyser, isPlaying]);
 
   const handlePlay = async () => {
-    if (!audioRef.current || !audioContext) return;
+    console.log('[AudioCanvasMode] Play button clicked');
+    console.log('[AudioCanvasMode] audioRef.current:', audioRef.current);
+    console.log('[AudioCanvasMode] audioContext:', audioContext);
+    console.log('[AudioCanvasMode] isPlaying:', isPlaying);
     
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume();
+    if (!audioRef.current) {
+      console.error('[AudioCanvasMode] No audio element available');
+      setError('Audio not loaded yet. Please wait...');
+      return;
     }
     
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      audioRef.current.play();
-      setIsPlaying(true);
+    if (!audioContext) {
+      console.error('[AudioCanvasMode] No audio context available');
+      setError('Audio context not initialized');
+      return;
+    }
+    
+    try {
+      if (audioContext.state === 'suspended') {
+        console.log('[AudioCanvasMode] Resuming suspended audio context...');
+        await audioContext.resume();
+        console.log('[AudioCanvasMode] Audio context resumed, state:', audioContext.state);
+      }
+      
+      if (isPlaying) {
+        console.log('[AudioCanvasMode] Pausing audio...');
+        audioRef.current.pause();
+        setIsPlaying(false);
+      } else {
+        console.log('[AudioCanvasMode] Playing audio...');
+        console.log('[AudioCanvasMode] Audio element readyState:', audioRef.current.readyState);
+        console.log('[AudioCanvasMode] Audio element src:', audioRef.current.src);
+        
+        try {
+          await audioRef.current.play();
+          console.log('[AudioCanvasMode] Audio play() succeeded');
+          setIsPlaying(true);
+        } catch (playError) {
+          console.error('[AudioCanvasMode] Audio play() failed:', playError);
+          console.error('[AudioCanvasMode] Play error details:', {
+            code: audioRef.current.error?.code,
+            message: audioRef.current.error?.message,
+          });
+          setError(`Playback failed: ${playError instanceof Error ? playError.message : 'Unknown error'}`);
+        }
+      }
+    } catch (error) {
+      console.error('[AudioCanvasMode] Error in handlePlay:', error);
+      setError(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -244,12 +352,28 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       />
       
       {/* Play button */}
-      <div className="absolute inset-0 flex items-center justify-center z-20">
+      <div className="absolute inset-0 flex flex-col items-center justify-center z-20 gap-4">
+        {loading && (
+          <div className="text-white text-lg">Loading audio...</div>
+        )}
+        {error && (
+          <div className="text-red-400 text-sm max-w-md text-center px-4">
+            {error}
+            <div className="text-xs mt-2 text-gray-400">
+              Check browser console for detailed error logs
+            </div>
+          </div>
+        )}
         <motion.button
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={handlePlay}
-          className="w-24 h-24 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-2xl transition-colors"
+          disabled={loading || !!error || !audioUrl}
+          className={`w-24 h-24 rounded-full flex items-center justify-center shadow-2xl transition-colors ${
+            loading || !!error || !audioUrl
+              ? 'bg-gray-600 cursor-not-allowed opacity-50'
+              : 'bg-blue-600 hover:bg-blue-700 text-white'
+          }`}
         >
           {isPlaying ? (
             <Pause className="w-12 h-12" />
@@ -257,6 +381,9 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
             <Play className="w-12 h-12 ml-1" />
           )}
         </motion.button>
+        {!loading && !error && audioUrl && (
+          <div className="text-white text-sm opacity-75">Ready to play</div>
+        )}
       </div>
       
       {/* Close button */}

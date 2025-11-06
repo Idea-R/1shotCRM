@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import openai from '@/lib/openai';
 import { supabase } from '@/lib/supabase';
 
+// Credit limits per plan
+const CREDIT_LIMITS = {
+  free: 100,
+  pro: 1000,
+  enterprise: 10000,
+};
+
+// Cost per AI request
+const CREDITS_PER_REQUEST = 1;
+
 export async function POST(req: NextRequest) {
   try {
     if (!openai) {
@@ -13,6 +23,47 @@ export async function POST(req: NextRequest) {
 
     const { message, messages } = await req.json();
     const lowerMessage = message.toLowerCase();
+
+    // Get auth token from header
+    const authHeader = req.headers.get('authorization');
+    let userId: string | null = null;
+    let userCredits: { credits: number; plan: string } | null = null;
+
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.replace('Bearer ', '');
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      
+      if (!authError && user) {
+        userId = user.id;
+        // Get user credits
+        const { data: credits } = await supabase
+          .from('user_credits')
+          .select('credits, plan')
+          .eq('user_id', userId)
+          .single();
+        
+        if (credits) {
+          userCredits = credits;
+        }
+      }
+    }
+
+    // Check credits for authenticated users
+    if (userId && userCredits) {
+      if (userCredits.credits < CREDITS_PER_REQUEST) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Insufficient credits. You have ${userCredits.credits} credits remaining. Free accounts get ${CREDIT_LIMITS.free} credits per month. Upgrade to Pro for more!`,
+            credits: userCredits.credits,
+          },
+          { status: 402 }
+        );
+      }
+    } else {
+      // Anonymous users get limited requests (rate limit)
+      // For now, allow but could add IP-based rate limiting
+    }
 
     // Fetch ALL CRM data with full details
     const [contactsRes, dealsRes, tasksRes, stagesRes, activitiesRes] = await Promise.all([
@@ -573,7 +624,23 @@ Respond naturally and helpfully. When answering questions, provide specific deta
 
     const response = completion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
 
-    return NextResponse.json({ success: true, response });
+    // Deduct credits for authenticated users
+    if (userId && userCredits) {
+      const { error: creditError } = await supabase.rpc('use_credit', {
+        user_uuid: userId,
+        amount: CREDITS_PER_REQUEST,
+      });
+
+      if (creditError) {
+        console.error('Error deducting credits:', creditError);
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      response,
+      credits: userId && userCredits ? userCredits.credits - CREDITS_PER_REQUEST : null,
+    });
   } catch (error: any) {
     console.error('AI Assistant error:', error);
     return NextResponse.json(

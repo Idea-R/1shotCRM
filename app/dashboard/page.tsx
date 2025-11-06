@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import MainLayout from '@/components/MainLayout';
+import PremiumFeatures from '@/components/PremiumFeatures';
 import { supabase, Deal, Contact, Task, PipelineStage } from '@/lib/supabase';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Users, Briefcase, CheckSquare, DollarSign } from 'lucide-react';
@@ -193,6 +194,11 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
+        </div>
+        
+        {/* Premium Features CTA */}
+        <div className="mt-8">
+          <PremiumFeatures />
         </div>
       </div>
     </MainLayout>

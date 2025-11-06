@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, X, Loader2, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -10,6 +12,7 @@ interface Message {
 }
 
 export default function AIAssistant() {
+  const { user, credits, refreshCredits } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     { role: 'assistant', content: "Hi! I'm your AI assistant. I can help you create contacts, deals, tasks, answer questions about your CRM, and more. What would you like to do?" }
@@ -35,9 +38,16 @@ export default function AIAssistant() {
     setIsLoading(true);
 
     try {
+      // Get auth token for authenticated users
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       const response = await fetch('/api/ai-assistant', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ message: userMessage, messages: messages }),
       });
 
@@ -45,6 +55,10 @@ export default function AIAssistant() {
       
       if (data.success) {
         setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
+        // Refresh credits if user is authenticated
+        if (user && data.credits !== undefined) {
+          await refreshCredits();
+        }
       } else {
         setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${data.error || 'Something went wrong'}` }]);
       }
@@ -75,6 +89,11 @@ export default function AIAssistant() {
             <div className="flex items-center gap-2">
               <Bot className="w-5 h-5 text-blue-600" />
               <h3 className="font-semibold text-gray-900 dark:text-white">AI Assistant</h3>
+              {user && credits && (
+                <span className="ml-2 px-2 py-0.5 text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded">
+                  {credits.credits} credits
+                </span>
+              )}
             </div>
             <button
               onClick={() => setIsOpen(false)}

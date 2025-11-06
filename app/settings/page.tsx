@@ -93,9 +93,9 @@ export default function SettingsPage() {
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 Connected to Supabase
               </p>
-              <button className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">
-                Reset Database
-              </button>
+              <p className="text-xs text-gray-500 dark:text-gray-500">
+                Database management is handled through the Supabase dashboard for security.
+              </p>
             </div>
           </div>
         </div>

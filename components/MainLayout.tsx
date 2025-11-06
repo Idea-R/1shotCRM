@@ -1,4 +1,6 @@
 import Sidebar from '@/components/Sidebar';
+import AIAssistant from '@/components/AIAssistant';
+import GlobalSearch from '@/components/GlobalSearch';
 
 export default function MainLayout({
   children,
@@ -11,6 +13,8 @@ export default function MainLayout({
       <div className="md:pl-64">
         <main className="py-6 px-4 sm:px-6 lg:px-8">{children}</main>
       </div>
+      <AIAssistant />
+      <GlobalSearch />
     </div>
   );
 }

@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, Users, Workflow, CheckSquare, Settings, Briefcase } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import AIAssistant from '@/components/AIAssistant';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -56,7 +55,6 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
-      <AIAssistant />
     </>
   );
 }

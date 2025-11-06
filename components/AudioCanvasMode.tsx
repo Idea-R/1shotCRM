@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Play, Pause, X } from 'lucide-react';
+import { Play, Pause, X, Volume2, VolumeX } from 'lucide-react';
 import { motion } from 'framer-motion';
 import InteractiveCanvas from '@/components/InteractiveCanvas';
 
@@ -17,9 +17,12 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [volume, setVolume] = useState(0.7);
+  const [isMuted, setIsMuted] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const animationFrameRef = useRef<number>();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mouseRef = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     // Load audio from Supabase storage
@@ -99,8 +102,8 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       console.log('[AudioCanvasMode] AudioContext created, state:', ctx.state);
       
       const analyserNode = ctx.createAnalyser();
-      analyserNode.fftSize = 256;
-      analyserNode.smoothingTimeConstant = 0.8;
+      analyserNode.fftSize = 512; // Increased for better frequency resolution
+      analyserNode.smoothingTimeConstant = 0.7;
       
       setAudioContext(ctx);
       setAnalyser(analyserNode);
@@ -143,6 +146,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       analyserNode.connect(ctx.destination);
       
       audioRef.current = audio;
+      audio.volume = volume;
       console.log('[AudioCanvasMode] Audio setup complete');
 
       audio.onended = () => {
@@ -181,6 +185,12 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
 
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
+
+    // Mouse tracking for interaction
+    const handleMouseMove = (e: MouseEvent) => {
+      mouseRef.current = { x: e.clientX, y: e.clientY };
+    };
+    window.addEventListener('mousemove', handleMouseMove);
 
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
@@ -231,8 +241,11 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       analyser.getByteFrequencyData(dataArray);
       
       // Clear canvas with very subtle fade to keep background visible
-      ctx.fillStyle = 'rgba(17, 24, 39, 0.08)';
+      ctx.fillStyle = 'rgba(17, 24, 39, 0.05)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Volume affects effect intensity
+      const effectIntensity = isMuted ? 0 : volume;
       
       if (!isPlaying) {
         animationFrameRef.current = requestAnimationFrame(draw);
@@ -240,18 +253,34 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       }
       
       const average = dataArray.reduce((a, b) => a + b) / bufferLength;
-      const bass = dataArray.slice(0, 10).reduce((a, b) => a + b) / 10;
-      const mid = dataArray.slice(10, 50).reduce((a, b) => a + b) / 40;
-      const treble = dataArray.slice(50, 128).reduce((a, b) => a + b) / 78;
+      const bass = dataArray.slice(0, 15).reduce((a, b) => a + b) / 15;
+      const mid = dataArray.slice(15, 80).reduce((a, b) => a + b) / 65;
+      const treble = dataArray.slice(80, 256).reduce((a, b) => a + b) / 176;
       
       const time = Date.now() * 0.001;
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
+      const mouse = mouseRef.current;
       
-      // Periodic burst effects from center
-      if (time - lastBurstTime > 2) { // Every 2 seconds
+      // Mouse interaction - ripple effects
+      if (mouse.x > 0 && mouse.y > 0 && bass > 50) {
+        const mouseDistance = Math.sqrt(Math.pow(mouse.x - centerX, 2) + Math.pow(mouse.y - centerY, 2));
+        if (mouseDistance < 300) {
+          waves.push({
+            x: mouse.x,
+            y: mouse.y,
+            radius: 0,
+            speed: 1.5 + (bass / 100),
+            alpha: 0.5 * effectIntensity,
+            hue: (bass * 2 + time * 40) % 360,
+          });
+        }
+      }
+      
+      // Periodic burst effects from center - volume affected
+      if (time - lastBurstTime > 2.5 && effectIntensity > 0.3) {
         lastBurstTime = time;
-        const numBursts = 20;
+        const numBursts = Math.floor(15 * effectIntensity);
         for (let i = 0; i < numBursts; i++) {
           const angle = (Math.PI * 2 * i) / numBursts;
           const speed = 3 + Math.random() * 4;
@@ -284,7 +313,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
         
         ctx.save();
-        ctx.globalAlpha = b.life * 0.6;
+        ctx.globalAlpha = b.life * 0.6 * effectIntensity;
         
         if (b.type === 'particle') {
           ctx.fillStyle = `hsl(${b.hue}, 100%, 60%)`;
@@ -309,68 +338,31 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         ctx.restore();
       }
       
-      // Bars across the entire canvas - multiple rows
-      const numBarRows = 5;
-      const barSpacing = canvas.height / (numBarRows + 1);
-      
-      for (let row = 0; row < numBarRows; row++) {
-        const yPos = barSpacing * (row + 1);
-        const barWidth = canvas.width / bufferLength * 1.2;
-        let x = 0;
-        
-        for (let i = 0; i < bufferLength; i += 2) {
-          const barHeight = (dataArray[i] / 255) * 30; // Smaller bars
-          
-          if (barHeight > 3) {
-            const gradient = ctx.createLinearGradient(x, yPos - barHeight / 2, x, yPos + barHeight / 2);
-            const hue = (i / bufferLength) * 360 + time * 20 + row * 30;
-            gradient.addColorStop(0, `hsla(${hue}, 100%, 50%, 0.15)`);
-            gradient.addColorStop(0.5, `hsla(${hue + 60}, 100%, 70%, 0.25)`);
-            gradient.addColorStop(1, `hsla(${hue}, 100%, 50%, 0.15)`);
-            
-            ctx.fillStyle = gradient;
-            ctx.fillRect(x, yPos - barHeight / 2, barWidth - 1, barHeight);
-          }
-          
-          x += barWidth * 2;
+      // Mouse interaction - particles follow mouse
+      if (mouse.x > 0 && mouse.y > 0 && average > 80) {
+        for (let i = 0; i < 2; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const distance = 30 + Math.random() * 50;
+          particles.push({
+            x: mouse.x + Math.cos(angle) * distance,
+            y: mouse.y + Math.sin(angle) * distance,
+            vx: Math.cos(angle) * (1 + average / 100),
+            vy: Math.sin(angle) * (1 + average / 100),
+            size: 2 + Math.random() * 3,
+            hue: (average * 2 + i * 60 + time * 40) % 360,
+            life: 1.0,
+          });
         }
       }
       
-      // Vertical bars on sides
-      const numVerticalRows = 3;
-      const verticalBarSpacing = canvas.width / (numVerticalRows + 1);
-      
-      for (let col = 0; col < numVerticalRows; col++) {
-        const xPos = verticalBarSpacing * (col + 1);
-        const barHeight = canvas.height / bufferLength * 1.2;
-        let y = 0;
-        
-        for (let i = 0; i < bufferLength; i += 2) {
-          const barWidth = (dataArray[i] / 255) * 30;
-          
-          if (barWidth > 3) {
-            const gradient = ctx.createLinearGradient(xPos - barWidth / 2, y, xPos + barWidth / 2, y);
-            const hue = (i / bufferLength) * 360 + time * 20 + col * 40;
-            gradient.addColorStop(0, `hsla(${hue}, 100%, 50%, 0.15)`);
-            gradient.addColorStop(0.5, `hsla(${hue + 60}, 100%, 70%, 0.25)`);
-            gradient.addColorStop(1, `hsla(${hue}, 100%, 50%, 0.15)`);
-            
-            ctx.fillStyle = gradient;
-            ctx.fillRect(xPos - barWidth / 2, y, barWidth, barHeight - 1);
-          }
-          
-          y += barHeight * 2;
-        }
-      }
-      
-      // Expanding circles/waves on beats - reduced intensity
-      if (bass > 80) {
+      // Expanding circles/waves on beats - volume affected
+      if (bass > 80 && effectIntensity > 0.2) {
         waves.push({
           x: centerX,
           y: centerY,
           radius: 0,
           speed: 2 + (bass / 50),
-          alpha: 0.4, // Reduced from 0.6
+          alpha: 0.4 * effectIntensity,
           hue: (bass * 2 + time * 30) % 360,
         });
       }
@@ -428,7 +420,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
         
         ctx.save();
-        ctx.globalAlpha = p.life * 0.7;
+        ctx.globalAlpha = p.life * 0.7 * effectIntensity;
         ctx.fillStyle = `hsl(${p.hue}, 100%, 60%)`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
@@ -436,16 +428,16 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         ctx.restore();
       }
       
-      // Additional effects: Starfield particles
-      if (treble > 100) {
-        for (let i = 0; i < 3; i++) {
+      // Additional effects: Starfield particles - volume affected
+      if (treble > 100 && effectIntensity > 0.3) {
+        for (let i = 0; i < Math.floor(3 * effectIntensity); i++) {
           const angle = Math.random() * Math.PI * 2;
           const distance = 50 + Math.random() * 100;
           const px = centerX + Math.cos(angle) * distance;
           const py = centerY + Math.sin(angle) * distance;
           
           ctx.save();
-          ctx.globalAlpha = 0.6;
+          ctx.globalAlpha = 0.6 * effectIntensity;
           ctx.fillStyle = `hsl(${(treble * 3 + time * 60) % 360}, 100%, 80%)`;
           ctx.beginPath();
           ctx.arc(px, py, 2, 0, Math.PI * 2);
@@ -454,17 +446,17 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // Rotating circles around center
-      if (mid > 90) {
+      // Rotating circles around center - volume affected
+      if (mid > 90 && effectIntensity > 0.2) {
         const numCircles = 8;
         for (let i = 0; i < numCircles; i++) {
-          const angle = (Math.PI * 2 * i) / numCircles + time;
-          const distance = 100 + mid;
+          const angle = (Math.PI * 2 * i) / numCircles + time * 0.3; // Slower rotation
+          const distance = 100 + mid * effectIntensity;
           const px = canvas.width / 2 + Math.cos(angle) * distance;
           const py = canvas.height / 2 + Math.sin(angle) * distance;
           
           ctx.save();
-          ctx.globalAlpha = 0.4;
+          ctx.globalAlpha = 0.4 * effectIntensity;
           ctx.fillStyle = `hsl(${(mid * 2 + i * 45 + time * 40) % 360}, 100%, 60%)`;
           ctx.beginPath();
           ctx.arc(px, py, 8 + (mid / 20), 0, Math.PI * 2);
@@ -473,12 +465,50 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // 3D Rotating Cube in center
-      cubeRotationX += 0.01 + (mid / 1000);
-      cubeRotationY += 0.015 + (bass / 1000);
-      cubeRotationZ += 0.01 + (treble / 1000);
+      // Audio Wave Bars at Top and Bottom
+      const barHeight = 80;
+      const topBarY = barHeight;
+      const bottomBarY = canvas.height - barHeight;
       
-      const cubeSize = 60 + (average / 10);
+      // Top bars
+      const topBarWidth = canvas.width / bufferLength;
+      for (let i = 0; i < bufferLength; i++) {
+        const barValue = (dataArray[i] / 255) * barHeight * effectIntensity;
+        const hue = (i / bufferLength) * 360 + time * 30;
+        
+        if (barValue > 2) {
+          const gradient = ctx.createLinearGradient(i * topBarWidth, topBarY - barValue, i * topBarWidth, topBarY);
+          gradient.addColorStop(0, `hsla(${hue}, 100%, 60%, 0.8)`);
+          gradient.addColorStop(1, `hsla(${hue + 60}, 100%, 50%, 0.4)`);
+          
+          ctx.fillStyle = gradient;
+          ctx.fillRect(i * topBarWidth, topBarY - barValue, topBarWidth - 1, barValue);
+        }
+      }
+      
+      // Bottom bars (mirrored)
+      const bottomBarWidth = canvas.width / bufferLength;
+      for (let i = 0; i < bufferLength; i++) {
+        const barValue = (dataArray[i] / 255) * barHeight * effectIntensity;
+        const hue = (i / bufferLength) * 360 + time * 30;
+        
+        if (barValue > 2) {
+          const gradient = ctx.createLinearGradient(i * bottomBarWidth, bottomBarY, i * bottomBarWidth, bottomBarY + barValue);
+          gradient.addColorStop(0, `hsla(${hue}, 100%, 60%, 0.8)`);
+          gradient.addColorStop(1, `hsla(${hue + 60}, 100%, 50%, 0.4)`);
+          
+          ctx.fillStyle = gradient;
+          ctx.fillRect(i * bottomBarWidth, bottomBarY, bottomBarWidth - 1, barValue);
+        }
+      }
+      
+      // 3D Rotating Cube in center - SLOW and PULSING
+      const pulseFactor = 1 + Math.sin(time * 0.5) * 0.15; // Slow pulse
+      cubeRotationX += (0.002 + (mid / 5000)) * effectIntensity; // Much slower
+      cubeRotationY += (0.003 + (bass / 5000)) * effectIntensity;
+      cubeRotationZ += (0.002 + (treble / 5000)) * effectIntensity;
+      
+      const cubeSize = (60 + (average / 15)) * pulseFactor * effectIntensity;
       const vertices = [
         [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
         [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]
@@ -520,7 +550,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       ];
       
       ctx.save();
-      ctx.globalAlpha = 0.7;
+      ctx.globalAlpha = 0.7 * effectIntensity;
       
       faces.forEach((face, idx) => {
         const points = face.map(i => rotatedVertices[i]);
@@ -546,31 +576,45 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       
       ctx.restore();
       
-      // Reduced brightness central pulse on bass hits
-      if (bass > 100) {
+      // Reduced brightness central pulse on bass hits - volume affected
+      if (bass > 100 && effectIntensity > 0.2) {
         ctx.save();
-        ctx.globalAlpha = 0.15; // Reduced from 0.3
+        ctx.globalAlpha = 0.15 * effectIntensity;
         ctx.fillStyle = `hsl(${(bass * 2 + time * 30) % 360}, 100%, 50%)`;
         ctx.beginPath();
-        ctx.arc(centerX, centerY, bass * 1.5, 0, Math.PI * 2);
+        ctx.arc(centerX, centerY, bass * 1.5 * effectIntensity, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }
       
-      // Flowing lines effect
-      if (treble > 100) {
+      // Flowing lines effect - volume affected
+      if (treble > 100 && effectIntensity > 0.3) {
         ctx.save();
-        ctx.globalAlpha = 0.3;
+        ctx.globalAlpha = 0.3 * effectIntensity;
         ctx.strokeStyle = `hsl(${(treble * 3 + time * 50) % 360}, 100%, 70%)`;
         ctx.lineWidth = 2;
         ctx.beginPath();
         for (let i = 0; i < 20; i++) {
           const x = (canvas.width / 20) * i;
-          const y = canvas.height / 2 + Math.sin(time * 2 + i * 0.5) * (treble / 3);
+          const y = canvas.height / 2 + Math.sin(time * 2 + i * 0.5) * (treble / 3) * effectIntensity;
           if (i === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
         }
         ctx.stroke();
+        ctx.restore();
+      }
+      
+      // Mouse interaction - cursor trail
+      if (mouse.x > 0 && mouse.y > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.3 * effectIntensity;
+        const mouseGradient = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 150);
+        mouseGradient.addColorStop(0, `hsla(${(time * 50) % 360}, 100%, 60%, 0.6)`);
+        mouseGradient.addColorStop(1, 'transparent');
+        ctx.fillStyle = mouseGradient;
+        ctx.beginPath();
+        ctx.arc(mouse.x, mouse.y, 150, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
       }
       
@@ -581,11 +625,32 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
 
     return () => {
       window.removeEventListener('resize', resizeCanvas);
+      window.removeEventListener('mousemove', handleMouseMove);
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [analyser, isPlaying]);
+  }, [analyser, isPlaying, volume, isMuted]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = isMuted ? 0 : volume;
+    }
+  }, [volume, isMuted]);
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newVolume = parseFloat(e.target.value);
+    setVolume(newVolume);
+    if (newVolume === 0) {
+      setIsMuted(true);
+    } else if (isMuted) {
+      setIsMuted(false);
+    }
+  };
+
+  const handleMuteToggle = () => {
+    setIsMuted(!isMuted);
+  };
 
   const handlePlay = async () => {
     console.log('[AudioCanvasMode] Play button clicked');
@@ -720,19 +785,46 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         </div>
       )}
       
-      {/* Pause button - small, top-right when playing */}
-      {isPlaying && (
-        <motion.button
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={handlePlay}
-          className="absolute top-4 left-4 z-20 w-16 h-16 rounded-full bg-blue-600/80 hover:bg-blue-700/90 text-white flex items-center justify-center shadow-lg backdrop-blur-sm transition-all"
+      {/* Volume Slider - Vertical on right side */}
+      <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-3">
+        <button
+          onClick={handleMuteToggle}
+          className="w-10 h-10 rounded-full bg-gray-800/80 hover:bg-gray-700/90 text-white flex items-center justify-center shadow-lg backdrop-blur-sm transition-all"
+          title={isMuted ? 'Unmute' : 'Mute'}
         >
-          <Pause className="w-8 h-8" />
-        </motion.button>
-      )}
+          {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+        </button>
+        
+        <div className="flex flex-col items-center gap-2">
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={isMuted ? 0 : volume}
+            onChange={handleVolumeChange}
+            className="volume-slider"
+            style={{
+              WebkitAppearance: 'slider-vertical' as any,
+              width: '8px',
+              height: '200px',
+              cursor: 'pointer',
+            }}
+          />
+          <span className="text-white text-xs font-medium">{Math.round((isMuted ? 0 : volume) * 100)}%</span>
+        </div>
+        
+        {/* Play/Pause button integrated */}
+        {isPlaying && (
+          <button
+            onClick={handlePlay}
+            className="w-10 h-10 rounded-full bg-blue-600/80 hover:bg-blue-700/90 text-white flex items-center justify-center shadow-lg backdrop-blur-sm transition-all"
+            title="Pause"
+          >
+            <Pause className="w-5 h-5" />
+          </button>
+        )}
+      </div>
       
       {/* Close button */}
       <button

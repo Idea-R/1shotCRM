@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import MainLayout from '@/components/MainLayout';
-import { Plus, List, Grid, Briefcase } from 'lucide-react';
+import Link from 'next/link';
+import { Plus, List, Grid } from 'lucide-react';
 import { supabase, Deal, PipelineStage } from '@/lib/supabase';
 import KanbanBoard from '@/components/KanbanBoard';
 import PipelineListView from '@/components/PipelineListView';
@@ -91,10 +92,13 @@ export default function PipelinePage() {
                 <List className="w-4 h-4" />
               </button>
             </div>
-            <button className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
+            <Link
+              href="/pipeline/new"
+              className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
               <Plus className="w-5 h-5 mr-2" />
               New Deal
-            </button>
+            </Link>
           </div>
         </div>
 

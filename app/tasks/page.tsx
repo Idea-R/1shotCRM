@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import MainLayout from '@/components/MainLayout';
 import { supabase, Task } from '@/lib/supabase';
-import { Plus, Calendar, List, CheckSquare, XSquare } from 'lucide-react';
+import Link from 'next/link';
+import { Plus, Calendar, List } from 'lucide-react';
 import TasksTableView from '@/components/TasksTableView';
 import TasksCalendarView from '@/components/TasksCalendarView';
 
@@ -89,10 +90,13 @@ export default function TasksPage() {
                 <Calendar className="w-4 h-4" />
               </button>
             </div>
-            <button className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
+            <Link
+              href="/tasks/new"
+              className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
               <Plus className="w-5 h-5 mr-2" />
               New Task
-            </button>
+            </Link>
           </div>
         </div>
 

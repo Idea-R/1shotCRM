@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Play, Pause, X, Volume2, VolumeX } from 'lucide-react';
 import { motion } from 'framer-motion';
-import InteractiveCanvas from '@/components/InteractiveCanvas';
 
 interface AudioCanvasModeProps {
   onClose: () => void;
@@ -23,6 +22,36 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
   const animationFrameRef = useRef<number>();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mouseRef = useRef({ x: 0, y: 0 });
+  const cursorCubeRotationRef = useRef({ x: 0, y: 0, z: 0 });
+  const clickExplosionsRef = useRef<Array<{
+    x: number;
+    y: number;
+    particles: Array<{
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      size: number;
+      hue: number;
+      life: number;
+    }>;
+    life: number;
+  }>>([]);
+  const pulsatingRingsRef = useRef<Array<{
+    radius: number;
+    speed: number;
+    alpha: number;
+    hue: number;
+    maxRadius: number;
+  }>>([]);
+  const borgsEffectsRef = useRef<Array<{
+    x: number;
+    y: number;
+    radius: number;
+    segments: number;
+    life: number;
+    hue: number;
+  }>>([]);
 
   useEffect(() => {
     // Load audio from Supabase storage
@@ -190,7 +219,71 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
     const handleMouseMove = (e: MouseEvent) => {
       mouseRef.current = { x: e.clientX, y: e.clientY };
     };
+    
+    // Mouse click handler for explosions
+    const handleMouseClick = (e: MouseEvent) => {
+      const clickX = e.clientX;
+      const clickY = e.clientY;
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      
+      // Check if click is on cube (within cube bounds)
+      const cubeSize = 60;
+      const distanceToCube = Math.sqrt(
+        Math.pow(clickX - centerX, 2) + Math.pow(clickY - centerY, 2)
+      );
+      
+      if (distanceToCube < cubeSize * 1.5) {
+        // Borgs effect - geometric pattern expanding from cube
+        const segments = 12;
+        for (let i = 0; i < segments; i++) {
+          const angle = (Math.PI * 2 * i) / segments;
+          borgsEffectsRef.current.push({
+            x: centerX,
+            y: centerY,
+            radius: 0,
+            segments: segments,
+            life: 1.0,
+            hue: (angle * 57.3 + Date.now() * 0.01) % 360,
+          });
+        }
+      } else {
+        // Regular explosion effect
+        const particles: Array<{
+          x: number;
+          y: number;
+          vx: number;
+          vy: number;
+          size: number;
+          hue: number;
+          life: number;
+        }> = [];
+        
+        for (let i = 0; i < 30; i++) {
+          const angle = (Math.PI * 2 * i) / 30 + Math.random() * 0.5;
+          const speed = 2 + Math.random() * 4;
+          particles.push({
+            x: clickX,
+            y: clickY,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            size: 2 + Math.random() * 4,
+            hue: (angle * 57.3 + Date.now() * 0.01) % 360,
+            life: 1.0,
+          });
+        }
+        
+        clickExplosionsRef.current.push({
+          x: clickX,
+          y: clickY,
+          particles,
+          life: 1.0,
+        });
+      }
+    };
+    
     window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('click', handleMouseClick);
 
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
@@ -240,9 +333,8 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
 
       analyser.getByteFrequencyData(dataArray);
       
-      // Clear canvas with very subtle fade to keep background visible
-      ctx.fillStyle = 'rgba(17, 24, 39, 0.05)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Clear canvas completely (no ghost effect)
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       
       // Volume affects effect intensity
       const effectIntensity = isMuted ? 0 : volume;
@@ -256,6 +348,9 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       const bass = dataArray.slice(0, 15).reduce((a, b) => a + b) / 15;
       const mid = dataArray.slice(15, 80).reduce((a, b) => a + b) / 65;
       const treble = dataArray.slice(80, 256).reduce((a, b) => a + b) / 176;
+      
+      // Calculate tempo estimate from bass frequency
+      const tempoMultiplier = 1 + (bass / 255) * 2; // 1x to 3x multiplier
       
       const time = Date.now() * 0.001;
       const centerX = canvas.width / 2;
@@ -353,6 +448,46 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
             life: 1.0,
           });
         }
+      }
+      
+      // Pulsating rings around cube - audio reactive
+      if (bass > 60 && effectIntensity > 0.2) {
+        pulsatingRingsRef.current.push({
+          radius: 0,
+          speed: 2 + (bass / 40) * tempoMultiplier,
+          alpha: 0.6 * effectIntensity,
+          hue: (bass * 2 + time * 30) % 360,
+          maxRadius: 300 + (bass * 2),
+        });
+      }
+      
+      // Update and draw pulsating rings
+      for (let i = pulsatingRingsRef.current.length - 1; i >= 0; i--) {
+        const ring = pulsatingRingsRef.current[i];
+        ring.radius += ring.speed;
+        ring.alpha -= 0.01;
+        
+        if (ring.alpha <= 0 || ring.radius > ring.maxRadius) {
+          pulsatingRingsRef.current.splice(i, 1);
+          continue;
+        }
+        
+        ctx.save();
+        ctx.globalAlpha = ring.alpha;
+        ctx.strokeStyle = `hsl(${ring.hue}, 100%, 60%)`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, ring.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Draw multiple concentric rings for better effect
+        if (ring.radius > 20) {
+          ctx.globalAlpha = ring.alpha * 0.5;
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, ring.radius - 15, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
       }
       
       // Expanding circles/waves on beats - volume affected
@@ -465,40 +600,38 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // Audio Wave Bars at Top and Bottom
+      // Audio Wave Bars at Top and Bottom - FIXED ORIENTATION
       const barHeight = 80;
-      const topBarY = barHeight;
-      const bottomBarY = canvas.height - barHeight;
       
-      // Top bars
+      // Top bars - extend DOWNWARD from top edge
       const topBarWidth = canvas.width / bufferLength;
       for (let i = 0; i < bufferLength; i++) {
         const barValue = (dataArray[i] / 255) * barHeight * effectIntensity;
         const hue = (i / bufferLength) * 360 + time * 30;
         
         if (barValue > 2) {
-          const gradient = ctx.createLinearGradient(i * topBarWidth, topBarY - barValue, i * topBarWidth, topBarY);
+          const gradient = ctx.createLinearGradient(i * topBarWidth, 0, i * topBarWidth, barValue);
           gradient.addColorStop(0, `hsla(${hue}, 100%, 60%, 0.8)`);
           gradient.addColorStop(1, `hsla(${hue + 60}, 100%, 50%, 0.4)`);
           
           ctx.fillStyle = gradient;
-          ctx.fillRect(i * topBarWidth, topBarY - barValue, topBarWidth - 1, barValue);
+          ctx.fillRect(i * topBarWidth, 0, topBarWidth - 1, barValue);
         }
       }
       
-      // Bottom bars (mirrored)
+      // Bottom bars - extend UPWARD from bottom edge
       const bottomBarWidth = canvas.width / bufferLength;
       for (let i = 0; i < bufferLength; i++) {
         const barValue = (dataArray[i] / 255) * barHeight * effectIntensity;
         const hue = (i / bufferLength) * 360 + time * 30;
         
         if (barValue > 2) {
-          const gradient = ctx.createLinearGradient(i * bottomBarWidth, bottomBarY, i * bottomBarWidth, bottomBarY + barValue);
+          const gradient = ctx.createLinearGradient(i * bottomBarWidth, canvas.height - barValue, i * bottomBarWidth, canvas.height);
           gradient.addColorStop(0, `hsla(${hue}, 100%, 60%, 0.8)`);
           gradient.addColorStop(1, `hsla(${hue + 60}, 100%, 50%, 0.4)`);
           
           ctx.fillStyle = gradient;
-          ctx.fillRect(i * bottomBarWidth, bottomBarY, bottomBarWidth - 1, barValue);
+          ctx.fillRect(i * bottomBarWidth, canvas.height - barValue, bottomBarWidth - 1, barValue);
         }
       }
       
@@ -576,45 +709,198 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       
       ctx.restore();
       
-      // Reduced brightness central pulse on bass hits - volume affected
-      if (bass > 100 && effectIntensity > 0.2) {
-        ctx.save();
-        ctx.globalAlpha = 0.15 * effectIntensity;
-        ctx.fillStyle = `hsl(${(bass * 2 + time * 30) % 360}, 100%, 50%)`;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, bass * 1.5 * effectIntensity, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
+      // Update and draw click explosions
+      for (let i = clickExplosionsRef.current.length - 1; i >= 0; i--) {
+        const explosion = clickExplosionsRef.current[i];
+        explosion.life -= 0.02;
+        
+        for (let j = explosion.particles.length - 1; j >= 0; j--) {
+          const p = explosion.particles[j];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vx *= 0.95;
+          p.vy *= 0.95;
+          p.life -= 0.02;
+          
+          if (p.life <= 0) {
+            explosion.particles.splice(j, 1);
+            continue;
+          }
+          
+          ctx.save();
+          ctx.globalAlpha = p.life * 0.8;
+          ctx.fillStyle = `hsl(${p.hue}, 100%, 60%)`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+        
+        if (explosion.life <= 0 || explosion.particles.length === 0) {
+          clickExplosionsRef.current.splice(i, 1);
+        }
       }
       
-      // Flowing lines effect - volume affected
-      if (treble > 100 && effectIntensity > 0.3) {
+      // Update and draw borgs effects
+      for (let i = borgsEffectsRef.current.length - 1; i >= 0; i--) {
+        const borg = borgsEffectsRef.current[i];
+        borg.radius += 3;
+        borg.life -= 0.015;
+        
+        if (borg.life <= 0 || borg.radius > 400) {
+          borgsEffectsRef.current.splice(i, 1);
+          continue;
+        }
+        
         ctx.save();
-        ctx.globalAlpha = 0.3 * effectIntensity;
-        ctx.strokeStyle = `hsl(${(treble * 3 + time * 50) % 360}, 100%, 70%)`;
+        ctx.globalAlpha = borg.life * 0.7;
+        ctx.strokeStyle = `hsl(${borg.hue}, 100%, 60%)`;
         ctx.lineWidth = 2;
+        
+        // Draw geometric pattern (hexagonal grid)
+        for (let seg = 0; seg < borg.segments; seg++) {
+          const angle = (Math.PI * 2 * seg) / borg.segments;
+          const x1 = borg.x + Math.cos(angle) * borg.radius;
+          const y1 = borg.y + Math.sin(angle) * borg.radius;
+          const x2 = borg.x + Math.cos(angle + Math.PI / borg.segments) * borg.radius;
+          const y2 = borg.y + Math.sin(angle + Math.PI / borg.segments) * borg.radius;
+          
+          ctx.beginPath();
+          ctx.moveTo(borg.x, borg.y);
+          ctx.lineTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.closePath();
+          ctx.stroke();
+        }
+        
+        // Draw inner hexagon
         ctx.beginPath();
-        for (let i = 0; i < 20; i++) {
-          const x = (canvas.width / 20) * i;
-          const y = canvas.height / 2 + Math.sin(time * 2 + i * 0.5) * (treble / 3) * effectIntensity;
-          if (i === 0) ctx.moveTo(x, y);
+        for (let seg = 0; seg < borg.segments; seg++) {
+          const angle = (Math.PI * 2 * seg) / borg.segments;
+          const x = borg.x + Math.cos(angle) * borg.radius * 0.6;
+          const y = borg.y + Math.sin(angle) * borg.radius * 0.6;
+          if (seg === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
         }
+        ctx.closePath();
         ctx.stroke();
+        
         ctx.restore();
       }
       
-      // Mouse interaction - cursor trail
-      if (mouse.x > 0 && mouse.y > 0) {
+      // Extended tempo-based flowing lines effect
+      if (treble > 80 && effectIntensity > 0.2) {
         ctx.save();
-        ctx.globalAlpha = 0.3 * effectIntensity;
-        const mouseGradient = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 150);
-        mouseGradient.addColorStop(0, `hsla(${(time * 50) % 360}, 100%, 60%, 0.6)`);
-        mouseGradient.addColorStop(1, 'transparent');
-        ctx.fillStyle = mouseGradient;
-        ctx.beginPath();
-        ctx.arc(mouse.x, mouse.y, 150, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.globalAlpha = 0.4 * effectIntensity;
+        ctx.strokeStyle = `hsl(${(treble * 3 + time * 50) % 360}, 100%, 70%)`;
+        ctx.lineWidth = 2;
+        
+        // Multiple wave layers for depth
+        for (let layer = 0; layer < 3; layer++) {
+          ctx.beginPath();
+          const layerOffset = layer * 0.3;
+          const amplitude = (treble / 3) * effectIntensity * tempoMultiplier * (1 + layer * 0.3);
+          const frequency = 2 + (tempoMultiplier - 1) * 0.5;
+          
+          for (let i = 0; i < canvas.width; i += 2) {
+            const x = i;
+            const y = canvas.height / 2 + Math.sin(time * frequency + i * 0.01 + layerOffset) * amplitude;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        }
+        
+        // Horizontal extension waves
+        for (let wave = 0; wave < 2; wave++) {
+          ctx.beginPath();
+          const waveY = canvas.height / 2 + (wave - 0.5) * 100;
+          const waveAmplitude = (treble / 4) * effectIntensity * tempoMultiplier;
+          
+          for (let i = 0; i < canvas.width; i += 2) {
+            const x = i;
+            const y = waveY + Math.sin(time * tempoMultiplier + i * 0.015) * waveAmplitude;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        }
+        
+        ctx.restore();
+      }
+      
+      // Custom rotating cube cursor
+      if (mouse.x > 0 && mouse.y > 0) {
+        // Update cursor cube rotation
+        cursorCubeRotationRef.current.x += 0.02;
+        cursorCubeRotationRef.current.y += 0.03;
+        cursorCubeRotationRef.current.z += 0.015;
+        
+        const cursorCubeSize = 15;
+        const cursorVertices = [
+          [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+          [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]
+        ];
+        
+        // Rotate cursor cube vertices
+        const rotatedCursorVertices = cursorVertices.map(v => {
+          let [x, y, z] = v;
+          
+          // Rotate around X axis
+          const y1 = y * Math.cos(cursorCubeRotationRef.current.x) - z * Math.sin(cursorCubeRotationRef.current.x);
+          const z1 = y * Math.sin(cursorCubeRotationRef.current.x) + z * Math.cos(cursorCubeRotationRef.current.x);
+          y = y1;
+          z = z1;
+          
+          // Rotate around Y axis
+          const x1 = x * Math.cos(cursorCubeRotationRef.current.y) + z * Math.sin(cursorCubeRotationRef.current.y);
+          const z2 = -x * Math.sin(cursorCubeRotationRef.current.y) + z * Math.cos(cursorCubeRotationRef.current.y);
+          x = x1;
+          z = z2;
+          
+          // Rotate around Z axis
+          const x2 = x * Math.cos(cursorCubeRotationRef.current.z) - y * Math.sin(cursorCubeRotationRef.current.z);
+          const y2 = x * Math.sin(cursorCubeRotationRef.current.z) + y * Math.cos(cursorCubeRotationRef.current.z);
+          x = x2;
+          y = y2;
+          
+          return {
+            x: mouse.x + x * cursorCubeSize,
+            y: mouse.y + y * cursorCubeSize,
+            z: z * cursorCubeSize
+          };
+        });
+        
+        // Draw cursor cube faces
+        const cursorFaces = [
+          [0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4],
+          [2, 3, 7, 6], [0, 3, 7, 4], [1, 2, 6, 5]
+        ];
+        
+        ctx.save();
+        ctx.globalAlpha = 0.8;
+        
+        cursorFaces.forEach((face, idx) => {
+          const points = face.map(i => rotatedCursorVertices[i]);
+          const avgZ = points.reduce((sum, p) => sum + p.z, 0) / points.length;
+          
+          if (avgZ > -cursorCubeSize) {
+            const hue = (idx * 60 + time * 50) % 360;
+            ctx.fillStyle = `hsla(${hue}, 100%, 60%, 0.6)`;
+            ctx.strokeStyle = `hsl(${hue}, 100%, 70%)`;
+            ctx.lineWidth = 1.5;
+            
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {
+              ctx.lineTo(points[i].x, points[i].y);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+          }
+        });
+        
         ctx.restore();
       }
       
@@ -626,6 +912,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
     return () => {
       window.removeEventListener('resize', resizeCanvas);
       window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('click', handleMouseClick);
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
@@ -745,11 +1032,10 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }}
     >
-      <InteractiveCanvas />
       <canvas
         ref={canvasRef}
         className="absolute inset-0 z-10"
-        style={{ background: 'transparent' }}
+        style={{ background: 'transparent', cursor: 'none' }}
       />
       
       {/* Play button - hidden when playing for full audio experience */}

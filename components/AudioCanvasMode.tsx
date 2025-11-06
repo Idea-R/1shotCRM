@@ -206,6 +206,25 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       hue: number;
     }> = [];
 
+    // 3D Cube state
+    let cubeRotationX = 0;
+    let cubeRotationY = 0;
+    let cubeRotationZ = 0;
+    
+    // Burst effects that fly out from center
+    const bursts: Array<{
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      size: number;
+      hue: number;
+      life: number;
+      type: 'particle' | 'line' | 'circle';
+    }> = [];
+    
+    let lastBurstTime = 0;
+
     const draw = () => {
       if (!analyser || !ctx) return;
 
@@ -226,38 +245,132 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       const treble = dataArray.slice(50, 128).reduce((a, b) => a + b) / 78;
       
       const time = Date.now() * 0.001;
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
       
-      // Subtle frequency bars - reduced opacity and size
-      const barWidth = canvas.width / bufferLength * 1.5;
-      let x = 0;
-      
-      for (let i = 0; i < bufferLength; i += 2) {
-        const barHeight = (dataArray[i] / 255) * canvas.height * 0.3; // Reduced from 0.8 to 0.3
-        
-        if (barHeight > 5) {
-          const gradient = ctx.createLinearGradient(x, canvas.height, x, canvas.height - barHeight);
-          const hue = (i / bufferLength) * 360 + time * 20;
-          gradient.addColorStop(0, `hsla(${hue}, 100%, 50%, 0.2)`); // Reduced opacity
-          gradient.addColorStop(1, `hsla(${hue + 60}, 100%, 70%, 0.3)`);
-          
-          ctx.fillStyle = gradient;
-          ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
-          
-          // Subtle mirror effect
-          ctx.fillRect(x, 0, barWidth - 1, barHeight * 0.5);
+      // Periodic burst effects from center
+      if (time - lastBurstTime > 2) { // Every 2 seconds
+        lastBurstTime = time;
+        const numBursts = 20;
+        for (let i = 0; i < numBursts; i++) {
+          const angle = (Math.PI * 2 * i) / numBursts;
+          const speed = 3 + Math.random() * 4;
+          const type = ['particle', 'line', 'circle'][Math.floor(Math.random() * 3)] as 'particle' | 'line' | 'circle';
+          bursts.push({
+            x: centerX,
+            y: centerY,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            size: 2 + Math.random() * 5,
+            hue: (angle * 57.3 + time * 50) % 360,
+            life: 1.0,
+            type,
+          });
         }
-        
-        x += barWidth * 2;
       }
       
-      // Expanding circles/waves on beats
+      // Update and draw bursts
+      for (let i = bursts.length - 1; i >= 0; i--) {
+        const b = bursts[i];
+        b.x += b.vx;
+        b.y += b.vy;
+        b.life -= 0.015;
+        b.vx *= 0.98;
+        b.vy *= 0.98;
+        
+        if (b.life <= 0 || b.x < -50 || b.x > canvas.width + 50 || b.y < -50 || b.y > canvas.height + 50) {
+          bursts.splice(i, 1);
+          continue;
+        }
+        
+        ctx.save();
+        ctx.globalAlpha = b.life * 0.6;
+        
+        if (b.type === 'particle') {
+          ctx.fillStyle = `hsl(${b.hue}, 100%, 60%)`;
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (b.type === 'line') {
+          ctx.strokeStyle = `hsl(${b.hue}, 100%, 60%)`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(b.x, b.y);
+          ctx.lineTo(b.x - b.vx * 5, b.y - b.vy * 5);
+          ctx.stroke();
+        } else if (b.type === 'circle') {
+          ctx.strokeStyle = `hsl(${b.hue}, 100%, 60%)`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, b.size * 2, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        
+        ctx.restore();
+      }
+      
+      // Bars across the entire canvas - multiple rows
+      const numBarRows = 5;
+      const barSpacing = canvas.height / (numBarRows + 1);
+      
+      for (let row = 0; row < numBarRows; row++) {
+        const yPos = barSpacing * (row + 1);
+        const barWidth = canvas.width / bufferLength * 1.2;
+        let x = 0;
+        
+        for (let i = 0; i < bufferLength; i += 2) {
+          const barHeight = (dataArray[i] / 255) * 30; // Smaller bars
+          
+          if (barHeight > 3) {
+            const gradient = ctx.createLinearGradient(x, yPos - barHeight / 2, x, yPos + barHeight / 2);
+            const hue = (i / bufferLength) * 360 + time * 20 + row * 30;
+            gradient.addColorStop(0, `hsla(${hue}, 100%, 50%, 0.15)`);
+            gradient.addColorStop(0.5, `hsla(${hue + 60}, 100%, 70%, 0.25)`);
+            gradient.addColorStop(1, `hsla(${hue}, 100%, 50%, 0.15)`);
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x, yPos - barHeight / 2, barWidth - 1, barHeight);
+          }
+          
+          x += barWidth * 2;
+        }
+      }
+      
+      // Vertical bars on sides
+      const numVerticalRows = 3;
+      const verticalBarSpacing = canvas.width / (numVerticalRows + 1);
+      
+      for (let col = 0; col < numVerticalRows; col++) {
+        const xPos = verticalBarSpacing * (col + 1);
+        const barHeight = canvas.height / bufferLength * 1.2;
+        let y = 0;
+        
+        for (let i = 0; i < bufferLength; i += 2) {
+          const barWidth = (dataArray[i] / 255) * 30;
+          
+          if (barWidth > 3) {
+            const gradient = ctx.createLinearGradient(xPos - barWidth / 2, y, xPos + barWidth / 2, y);
+            const hue = (i / bufferLength) * 360 + time * 20 + col * 40;
+            gradient.addColorStop(0, `hsla(${hue}, 100%, 50%, 0.15)`);
+            gradient.addColorStop(0.5, `hsla(${hue + 60}, 100%, 70%, 0.25)`);
+            gradient.addColorStop(1, `hsla(${hue}, 100%, 50%, 0.15)`);
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(xPos - barWidth / 2, y, barWidth, barHeight - 1);
+          }
+          
+          y += barHeight * 2;
+        }
+      }
+      
+      // Expanding circles/waves on beats - reduced intensity
       if (bass > 80) {
         waves.push({
-          x: canvas.width / 2,
-          y: canvas.height / 2,
+          x: centerX,
+          y: centerY,
           radius: 0,
           speed: 2 + (bass / 50),
-          alpha: 0.6,
+          alpha: 0.4, // Reduced from 0.6
           hue: (bass * 2 + time * 30) % 360,
         });
       }
@@ -266,7 +379,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       for (let i = waves.length - 1; i >= 0; i--) {
         const wave = waves[i];
         wave.radius += wave.speed;
-        wave.alpha -= 0.02;
+        wave.alpha -= 0.015;
         
         if (wave.alpha <= 0 || wave.radius > Math.max(canvas.width, canvas.height)) {
           waves.splice(i, 1);
@@ -276,21 +389,21 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         ctx.save();
         ctx.globalAlpha = wave.alpha;
         ctx.strokeStyle = `hsl(${wave.hue}, 100%, 60%)`;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(wave.x, wave.y, wave.radius, 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
       }
       
-      // Particle effects on strong beats
+      // Enhanced particle effects on strong beats
       if (average > 100) {
-        for (let i = 0; i < 3; i++) {
-          const angle = (Math.PI * 2 * i) / 3 + time;
+        for (let i = 0; i < 5; i++) {
+          const angle = (Math.PI * 2 * i) / 5 + time;
           const speed = 2 + (average / 50);
           particles.push({
-            x: canvas.width / 2,
-            y: canvas.height / 2,
+            x: centerX,
+            y: centerY,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
             size: 3 + Math.random() * 4,
@@ -309,18 +422,36 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         p.vx *= 0.98;
         p.vy *= 0.98;
         
-        if (p.life <= 0 || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) {
+        if (p.life <= 0 || p.x < -100 || p.x > canvas.width + 100 || p.y < -100 || p.y > canvas.height + 100) {
           particles.splice(i, 1);
           continue;
         }
         
         ctx.save();
-        ctx.globalAlpha = p.life * 0.8;
+        ctx.globalAlpha = p.life * 0.7;
         ctx.fillStyle = `hsl(${p.hue}, 100%, 60%)`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
+      }
+      
+      // Additional effects: Starfield particles
+      if (treble > 100) {
+        for (let i = 0; i < 3; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const distance = 50 + Math.random() * 100;
+          const px = centerX + Math.cos(angle) * distance;
+          const py = centerY + Math.sin(angle) * distance;
+          
+          ctx.save();
+          ctx.globalAlpha = 0.6;
+          ctx.fillStyle = `hsl(${(treble * 3 + time * 60) % 360}, 100%, 80%)`;
+          ctx.beginPath();
+          ctx.arc(px, py, 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
       }
       
       // Rotating circles around center
@@ -342,13 +473,86 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // Central pulse on bass hits
+      // 3D Rotating Cube in center
+      cubeRotationX += 0.01 + (mid / 1000);
+      cubeRotationY += 0.015 + (bass / 1000);
+      cubeRotationZ += 0.01 + (treble / 1000);
+      
+      const cubeSize = 60 + (average / 10);
+      const vertices = [
+        [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+        [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]
+      ];
+      
+      // Rotate vertices
+      const rotatedVertices = vertices.map(v => {
+        let [x, y, z] = v;
+        
+        // Rotate around X axis
+        const y1 = y * Math.cos(cubeRotationX) - z * Math.sin(cubeRotationX);
+        const z1 = y * Math.sin(cubeRotationX) + z * Math.cos(cubeRotationX);
+        y = y1;
+        z = z1;
+        
+        // Rotate around Y axis
+        const x1 = x * Math.cos(cubeRotationY) + z * Math.sin(cubeRotationY);
+        const z2 = -x * Math.sin(cubeRotationY) + z * Math.cos(cubeRotationY);
+        x = x1;
+        z = z2;
+        
+        // Rotate around Z axis
+        const x2 = x * Math.cos(cubeRotationZ) - y * Math.sin(cubeRotationZ);
+        const y2 = x * Math.sin(cubeRotationZ) + y * Math.cos(cubeRotationZ);
+        x = x2;
+        y = y2;
+        
+        return {
+          x: centerX + x * cubeSize,
+          y: centerY + y * cubeSize,
+          z: z * cubeSize
+        };
+      });
+      
+      // Draw cube faces
+      const faces = [
+        [0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4],
+        [2, 3, 7, 6], [0, 3, 7, 4], [1, 2, 6, 5]
+      ];
+      
+      ctx.save();
+      ctx.globalAlpha = 0.7;
+      
+      faces.forEach((face, idx) => {
+        const points = face.map(i => rotatedVertices[i]);
+        const avgZ = points.reduce((sum, p) => sum + p.z, 0) / points.length;
+        
+        // Only draw front faces
+        if (avgZ > -cubeSize) {
+          const hue = (idx * 60 + time * 30 + average) % 360;
+          ctx.fillStyle = `hsla(${hue}, 100%, 60%, 0.4)`;
+          ctx.strokeStyle = `hsl(${hue}, 100%, 70%)`;
+          ctx.lineWidth = 2;
+          
+          ctx.beginPath();
+          ctx.moveTo(points[0].x, points[0].y);
+          for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i].x, points[i].y);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      });
+      
+      ctx.restore();
+      
+      // Reduced brightness central pulse on bass hits
       if (bass > 100) {
         ctx.save();
-        ctx.globalAlpha = 0.3;
+        ctx.globalAlpha = 0.15; // Reduced from 0.3
         ctx.fillStyle = `hsl(${(bass * 2 + time * 30) % 360}, 100%, 50%)`;
         ctx.beginPath();
-        ctx.arc(canvas.width / 2, canvas.height / 2, bass * 2, 0, Math.PI * 2);
+        ctx.arc(centerX, centerY, bass * 1.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }

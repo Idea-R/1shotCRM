@@ -8,3 +8,26 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Force HTTPS redirects
+[[redirects]]
+  from = "http://1shotcrm.com/*"
+  to = "https://1shotcrm.com/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "http://www.1shotcrm.com/*"
+  to = "https://www.1shotcrm.com/:splat"
+  status = 301
+  force = true
+
+# Security headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"

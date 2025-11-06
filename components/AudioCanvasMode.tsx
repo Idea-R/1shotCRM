@@ -29,9 +29,17 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       setError(null);
       
       try {
-        console.log('[AudioCanvasMode] Attempting to download from Supabase storage...');
+        // First, try to get the public URL (works for public buckets)
+        console.log('[AudioCanvasMode] Attempting to get public URL from Supabase storage...');
         console.log('[AudioCanvasMode] Bucket: audio, File: CursorAllNight.mp3');
         
+        const { data: urlData } = supabase.storage
+          .from('audio')
+          .getPublicUrl('CursorAllNight.mp3');
+        
+        console.log('[AudioCanvasMode] Public URL:', urlData.publicUrl);
+        
+        // Try downloading first (works if file exists and permissions are correct)
         const { data, error: downloadError } = await supabase.storage
           .from('audio')
           .download('CursorAllNight.mp3');
@@ -39,14 +47,22 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         if (downloadError) {
           console.error('[AudioCanvasMode] Supabase download error:', downloadError);
           console.error('[AudioCanvasMode] Error details:', JSON.stringify(downloadError, null, 2));
-          setError(`Failed to load audio: ${downloadError.message || 'Unknown error'}`);
+          console.error('[AudioCanvasMode] Error name:', downloadError.name);
+          console.error('[AudioCanvasMode] Error message:', downloadError.message);
+          
+          // If file doesn't exist, provide helpful error message
+          if (downloadError.message?.includes('not found') || downloadError.message?.includes('404') || downloadError.name === 'StorageUnknownError') {
+            setError('Audio file not found. Please upload CursorAllNight.mp3 to the "audio" bucket in Supabase Storage.');
+          } else {
+            setError(`Failed to load audio: ${downloadError.message || downloadError.name || 'Unknown error'}. Check browser console for details.`);
+          }
           setLoading(false);
           return;
         }
         
         if (!data) {
           console.error('[AudioCanvasMode] No data returned from Supabase');
-          setError('No audio data received from server');
+          setError('No audio data received from server. The file may not exist in the storage bucket.');
           setLoading(false);
           return;
         }
@@ -61,7 +77,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       } catch (error) {
         console.error('[AudioCanvasMode] Exception during audio load:', error);
         console.error('[AudioCanvasMode] Error stack:', error instanceof Error ? error.stack : 'No stack');
-        setError(`Error loading audio: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        setError(`Error loading audio: ${error instanceof Error ? error.message : 'Unknown error'}. Please ensure CursorAllNight.mp3 is uploaded to the "audio" bucket.`);
         setLoading(false);
       }
     };

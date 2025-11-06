@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, Workflow, CheckSquare, Settings, Briefcase, LogOut, User, ChevronLeft, ChevronRight, Music, Image as ImageIcon } from 'lucide-react';
+import { LayoutDashboard, Users, Workflow, CheckSquare, Settings, Briefcase, LogOut, User, ChevronLeft, ChevronRight, Music, Image as ImageIcon, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState, useRef, useEffect } from 'react';
@@ -139,15 +139,20 @@ export default function Sidebar() {
               })}
             </nav>
             
-            {/* Fun button - Audio Canvas Mode */}
+            {/* Take a Break button */}
             <div className="px-2 pb-2">
               <button
                 onClick={() => setShowAudioMode(true)}
                 className="w-full flex items-center px-3 py-2 text-sm text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition-colors"
-                title={isCollapsed ? "Audio Canvas" : undefined}
+                title={isCollapsed ? "Take a Break" : undefined}
               >
                 <Music className={cn("flex-shrink-0 h-5 w-5", isCollapsed ? "mx-auto" : "mr-3")} />
-                {!isCollapsed && "Audio Canvas"}
+                {!isCollapsed && (
+                  <>
+                    <span className="flex-1 text-left">Take a Break</span>
+                    <Play className="flex-shrink-0 h-4 w-4 ml-2" />
+                  </>
+                )}
               </button>
             </div>
             

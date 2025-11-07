@@ -40,3 +40,7 @@ next-env.d.ts
 *.wav
 *.ogg
 
+# documentation (local docs, not needed in repo)
+/documents/
+
+

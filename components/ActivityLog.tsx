@@ -203,7 +203,8 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
                     {activity.description && (
                       <div
                         className="mt-2 text-sm text-gray-600 dark:text-gray-400 prose prose-sm dark:prose-invert max-w-none"
-                        dangerouslySetInnerHTML={{ __html: activity.description }}
+                        dangerouslySetInnerHTML={{ __html: activity.description || '' }}
+                        suppressHydrationWarning
                       />
                     )}
                     <span className="inline-block mt-2 px-2 py-1 text-xs font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">

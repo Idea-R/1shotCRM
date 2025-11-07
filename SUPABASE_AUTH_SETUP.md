@@ -100,13 +100,51 @@ CREATE TRIGGER on_auth_user_created
   - Check that session is being sent with API requests
   - Verify `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set correctly
 
-## Step 5: Environment Variables
+## Step 5: Configure Google OAuth Provider (Optional but Recommended)
+
+If you want to enable Google Sign-In through Supabase Auth:
+
+1. **Enable Google Provider in Supabase**
+   - Go to: Authentication > Providers > Google
+   - Enable the Google provider
+   - You'll need to create a Google OAuth 2.0 Client ID:
+     - Go to: https://console.cloud.google.com/apis/credentials
+     - Create OAuth 2.0 Client ID
+     - Application type: Web application
+     - Authorized redirect URIs: Add these:
+       ```
+       https://otbaeguavfmruyuadjva.supabase.co/auth/v1/callback
+       ```
+   - Copy the Client ID and Client Secret
+   - Paste them into Supabase Auth > Providers > Google
+
+2. **Google Calendar Integration Redirect URLs**
+   - For Google Calendar OAuth (separate from Supabase Auth), add these to your Google Cloud Console OAuth credentials:
+     ```
+     http://localhost:3000/api/calendar/google/callback
+     https://1shotcrm.com/api/calendar/google/callback
+     https://www.1shotcrm.com/api/calendar/google/callback
+     ```
+   - This is for the calendar integration feature (different from Google Sign-In)
+
+## Step 6: Environment Variables
 
 Make sure these are set in your `.env.local` (development) and Netlify (production):
 
 ```env
+# Supabase
 NEXT_PUBLIC_SUPABASE_URL=https://otbaeguavfmruyuadjva.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+
+# Site URL (used for OAuth redirects)
+NEXT_PUBLIC_SITE_URL=http://localhost:3000  # Development
+# NEXT_PUBLIC_SITE_URL=https://1shotcrm.com  # Production
+
+# Google Calendar Integration (optional)
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_REDIRECT_URI=http://localhost:3000/api/calendar/google/callback  # Development
+# GOOGLE_REDIRECT_URI=https://1shotcrm.com/api/calendar/google/callback  # Production
 ```
 
 ## Step 6: Verify RLS Policies
@@ -139,13 +177,18 @@ The current RLS policies allow all operations. If you want to restrict access:
 ## Quick Setup Checklist
 
 - [ ] Set Site URL in Supabase Auth settings
-- [ ] Add redirect URLs
+- [ ] Add redirect URLs (see REDIRECT_URLS_GUIDE.md for complete list)
 - [ ] Configure email provider (enable/disable confirmation)
+- [ ] (Optional) Enable Google Sign-In provider
+- [ ] (Optional) Configure Google Calendar OAuth redirect URLs
 - [ ] Verify user_credits trigger exists
+- [ ] Set environment variables (NEXT_PUBLIC_SITE_URL, GOOGLE_REDIRECT_URI if using calendar)
 - [ ] Test sign-up flow
 - [ ] Test sign-in flow
 - [ ] Verify credits are initialized
 - [ ] Test creating activities/tasks while signed in
+- [ ] (Optional) Test Google Sign-In if enabled
+- [ ] (Optional) Test Google Calendar integration if configured
 
 ## Need Help?
 

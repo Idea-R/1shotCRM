@@ -24,6 +24,7 @@ const activityIcons = {
 export default function ActivityLog({ dealId, contactId, activities }: ActivityLogProps) {
   const router = useRouter();
   const [newActivity, setNewActivity] = useState({ type: 'note', title: '', description: '' });
+  const [showForm, setShowForm] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -65,6 +66,7 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
         // Reset form
         setNewActivity({ type: 'note', title: '', description: '' });
         setIsAdding(false);
+        setShowForm(false);
         // Refresh the page data
         router.refresh();
       } else {
@@ -91,6 +93,7 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
       abortControllerRef.current.abort();
     }
     setIsAdding(false);
+    setShowForm(false);
     setError(null);
     setNewActivity({ type: 'note', title: '', description: '' });
   };
@@ -101,7 +104,7 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Activity Log</h3>
           <button
-            onClick={() => setIsAdding(!isAdding)}
+            onClick={() => setShowForm(!showForm)}
             disabled={isAdding}
             className="inline-flex items-center px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -111,7 +114,7 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
         </div>
       </div>
 
-      {isAdding && (
+      {showForm && (
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
           <div className="space-y-4">
             <div>

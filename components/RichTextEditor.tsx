@@ -4,6 +4,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Bold, Italic, List } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 interface RichTextEditorProps {
   content: string;
@@ -18,6 +19,12 @@ export default function RichTextEditor({
   placeholder = 'Start typing...',
   editable = true,
 }: RichTextEditorProps) {
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -38,8 +45,19 @@ export default function RichTextEditor({
     },
   });
 
-  if (!editor) {
-    return null;
+  // Update editor content when prop changes (but only after mount)
+  useEffect(() => {
+    if (mounted && editor && content !== editor.getHTML()) {
+      editor.commands.setContent(content);
+    }
+  }, [content, editor, mounted]);
+
+  if (!mounted || !editor) {
+    return (
+      <div className="border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 min-h-[150px] px-4 py-3">
+        <div className="text-gray-400 text-sm">{placeholder}</div>
+      </div>
+    );
   }
 
   return (

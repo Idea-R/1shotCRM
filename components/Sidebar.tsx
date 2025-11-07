@@ -15,6 +15,7 @@ const navigation = [
   { name: 'Contacts', href: '/contacts', icon: Users },
   { name: 'Pipeline', href: '/pipeline', icon: Briefcase },
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
+  { name: 'Services', href: '/services', icon: Workflow },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 

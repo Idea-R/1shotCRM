@@ -19,6 +19,8 @@ export interface Contact {
   company?: string;
   created_at: string;
   updated_at: string;
+  profile_types?: ContactProfileTypeAssignment[];
+  categories?: ContactCategoryAssignment[];
 }
 
 export interface PipelineStage {
@@ -87,6 +89,128 @@ export interface EmailTemplate {
   body: string;
   category: string;
   variables: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomFieldDefinition {
+  id: string;
+  name: string;
+  type: 'text' | 'number' | 'date' | 'select' | 'textarea';
+  category: string;
+  order: number;
+  required: boolean;
+  options?: string[]; // For select type
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomFieldValue {
+  id: string;
+  contact_id: string;
+  field_definition_id: string;
+  value: string;
+  created_at: string;
+  updated_at: string;
+  field_definition?: CustomFieldDefinition;
+}
+
+export interface Appliance {
+  id: string;
+  contact_id: string;
+  name: string;
+  category: string;
+  appliance_type_id?: string;
+  model_number?: string;
+  serial_number?: string;
+  brand?: string;
+  purchase_date?: string;
+  install_date?: string;
+  age_years?: number;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+  contact?: Contact;
+  appliance_type?: ApplianceType;
+}
+
+export interface Service {
+  id: string;
+  contact_id: string;
+  appliance_id?: string;
+  title: string;
+  description?: string;
+  service_date?: string;
+  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+  technician?: string;
+  cost?: number;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+  contact?: Contact;
+  appliance?: Appliance;
+}
+
+export interface ServiceHistory {
+  id: string;
+  service_id?: string;
+  appliance_id?: string;
+  contact_id: string;
+  type: 'service' | 'repair' | 'maintenance' | 'inspection';
+  description: string;
+  date: string;
+  cost?: number;
+  technician?: string;
+  created_at: string;
+  service?: Service;
+  appliance?: Appliance;
+  contact?: Contact;
+}
+
+export interface ContactProfileType {
+  id: string;
+  name: string;
+  icon?: string;
+  color: string;
+  default_layout_config?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContactProfileTypeAssignment {
+  id: string;
+  contact_id: string;
+  profile_type_id: string;
+  is_primary: boolean;
+  created_at: string;
+  profile_type?: ContactProfileType;
+}
+
+export interface ContactCategory {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  color: string;
+  parent_category_id?: string;
+  created_at: string;
+  updated_at: string;
+  parent_category?: ContactCategory;
+}
+
+export interface ContactCategoryAssignment {
+  id: string;
+  contact_id: string;
+  category_id: string;
+  created_at: string;
+  category?: ContactCategory;
+}
+
+export interface ApplianceType {
+  id: string;
+  name: string;
+  category: string;
+  icon?: string;
   created_at: string;
   updated_at: string;
 }

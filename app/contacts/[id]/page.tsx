@@ -6,6 +6,13 @@ import { Mail, Phone, Building, DollarSign, Calendar, User } from 'lucide-react'
 import Link from 'next/link';
 import ContactInfoPanel from '@/components/ContactInfoPanel';
 import ActivityLog from '@/components/ActivityLog';
+import CustomFieldsSection from '@/components/CustomFieldsSection';
+import AppliancesSection from '@/components/AppliancesSection';
+import ServiceHistorySection from '@/components/ServiceHistorySection';
+import ProfileTypesSection from '@/components/ProfileTypesSection';
+import CategoriesSection from '@/components/CategoriesSection';
+import FileAttachmentsSection from '@/components/FileAttachmentsSection';
+import ContactActions from '@/components/ContactActions';
 
 export default async function ContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -44,7 +51,8 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
         {/* Header */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-6">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">{contact.name}</h1>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <ContactActions contact={contact} />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
             {contact.email && (
               <div className="flex items-center">
                 <Mail className="w-5 h-5 text-gray-400 mr-2" />
@@ -99,17 +107,23 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Panel - Contact Info */}
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1 space-y-6">
+            <ProfileTypesSection contactId={id} />
+            <CategoriesSection contactId={id} />
             <ContactInfoPanel 
               contact={contact} 
               deals={relatedDeals || []} 
               tasks={relatedTasks || []} 
             />
+            <CustomFieldsSection contactId={id} />
+            <AppliancesSection contactId={id} />
           </div>
 
-          {/* Middle Panel - Activity Log */}
-          <div className="lg:col-span-2">
+          {/* Middle Panel - Activity Log & Service History */}
+          <div className="lg:col-span-2 space-y-6">
             <ActivityLog contactId={id} activities={activities || []} />
+            <FileAttachmentsSection entityType="contact" entityId={id} />
+            <ServiceHistorySection contactId={id} />
           </div>
         </div>
       </div>

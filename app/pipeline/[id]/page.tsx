@@ -3,6 +3,9 @@ import { supabase } from '@/lib/supabase';
 import { notFound } from 'next/navigation';
 import DealInfoPanel from '@/components/DealInfoPanel';
 import ActivityLog from '@/components/ActivityLog';
+import FileAttachmentsSection from '@/components/FileAttachmentsSection';
+import DealActions from '@/components/DealActions';
+import PaymentSection from '@/components/PaymentSection';
 import { DollarSign, Calendar, User, TrendingUp } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -39,7 +42,8 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
         {/* Header */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-6">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">{deal.title}</h1>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <DealActions deal={deal} />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
             <div className="flex items-center">
               <DollarSign className="w-5 h-5 text-gray-400 mr-2" />
               <div>
@@ -89,8 +93,10 @@ export default async function DealDetailPage({ params }: { params: Promise<{ id:
           </div>
 
           {/* Middle Panel - Activity Log */}
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 space-y-6">
             <ActivityLog dealId={id} activities={activities || []} />
+            <FileAttachmentsSection entityType="deal" entityId={id} />
+            <PaymentSection dealId={id} contactId={deal.contact_id || undefined} />
           </div>
         </div>
       </div>

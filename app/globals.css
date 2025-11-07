@@ -25,6 +25,38 @@
   body {
     @apply antialiased;
   }
+  
+  /* TipTap Editor Styles */
+  .ProseMirror {
+    outline: none;
+    min-height: 150px;
+  }
+  
+  .ProseMirror p {
+    margin: 0.5em 0;
+  }
+  
+  .ProseMirror p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    color: #9ca3af;
+    pointer-events: none;
+    height: 0;
+  }
+  
+  .ProseMirror ul,
+  .ProseMirror ol {
+    padding-left: 1.5em;
+    margin: 0.5em 0;
+  }
+  
+  .ProseMirror strong {
+    font-weight: 600;
+  }
+  
+  .ProseMirror em {
+    font-style: italic;
+  }
 }
 
 @layer utilities {
@@ -43,9 +75,7 @@
   
   /* Volume slider vertical styling */
   input[type="range"].volume-slider {
-    -webkit-appearance: slider-vertical;
-    appearance: slider-vertical;
-    writing-mode: bt-lr;
+    writing-mode: vertical-lr;
     direction: rtl;
   }
   

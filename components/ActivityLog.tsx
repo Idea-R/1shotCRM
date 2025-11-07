@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Activity, Task } from '@/lib/supabase';
 import { format } from 'date-fns';
 import { Plus, FileText, Phone, Mail, Calendar, CheckSquare } from 'lucide-react';
+import RichTextEditor from './RichTextEditor';
 
 interface ActivityLogProps {
   dealId?: string;
@@ -25,6 +26,7 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
   const [newActivity, setNewActivity] = useState({ type: 'note', title: '', description: '' });
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const handleAddActivity = async () => {
     if (!newActivity.title.trim()) {
@@ -35,6 +37,10 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
     setIsAdding(true);
     setError(null);
     
+    // Create abort controller for request cancellation
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    
     try {
       const response = await fetch('/api/activities', {
         method: 'POST',
@@ -44,7 +50,14 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
           deal_id: dealId,
           contact_id: contactId,
         }),
+        signal: abortController.signal,
       });
+
+      // Check if request was aborted
+      if (abortController.signal.aborted) {
+        setIsAdding(false);
+        return;
+      }
 
       const data = await response.json();
 
@@ -58,11 +71,28 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
         setError(data.error || 'Failed to add activity');
         setIsAdding(false);
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Ignore abort errors
+      if (error.name === 'AbortError') {
+        setIsAdding(false);
+        return;
+      }
       console.error('Error adding activity:', error);
       setError('Network error. Please try again.');
       setIsAdding(false);
+    } finally {
+      abortControllerRef.current = null;
     }
+  };
+
+  const handleCancel = () => {
+    // Abort any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setIsAdding(false);
+    setError(null);
+    setNewActivity({ type: 'note', title: '', description: '' });
   };
 
   return (
@@ -72,7 +102,8 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Activity Log</h3>
           <button
             onClick={() => setIsAdding(!isAdding)}
-            className="inline-flex items-center px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            disabled={isAdding}
+            className="inline-flex items-center px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Plus className="w-4 h-4 mr-1" />
             Add Activity
@@ -115,23 +146,16 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Description
               </label>
-              <textarea
-                value={newActivity.description}
-                onChange={(e) => setNewActivity({ ...newActivity, description: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                rows={3}
-                placeholder="Enter activity description"
+              <RichTextEditor
+                content={newActivity.description}
+                onChange={(content) => setNewActivity({ ...newActivity, description: content })}
+                placeholder="Enter activity description (supports formatting)"
               />
             </div>
             <div className="flex items-center justify-end gap-2">
               <button
-                onClick={() => {
-                  setIsAdding(false);
-                  setError(null);
-                  setNewActivity({ type: 'note', title: '', description: '' });
-                }}
+                onClick={handleCancel}
                 className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                disabled={isAdding}
               >
                 Cancel
               </button>
@@ -174,9 +198,10 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
                       </span>
                     </div>
                     {activity.description && (
-                      <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                        {activity.description}
-                      </p>
+                      <div
+                        className="mt-2 text-sm text-gray-600 dark:text-gray-400 prose prose-sm dark:prose-invert max-w-none"
+                        dangerouslySetInnerHTML={{ __html: activity.description }}
+                      />
                     )}
                     <span className="inline-block mt-2 px-2 py-1 text-xs font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
                       {activity.type}

@@ -48,6 +48,8 @@ export default function KanbanBoard({ deals, stages, onDealUpdate, onTitleUpdate
     const overId = event.over?.id as string;
     if (overId) {
       setOverId(overId);
+    } else {
+      setOverId(null);
     }
   };
 
@@ -61,11 +63,27 @@ export default function KanbanBoard({ deals, stages, onDealUpdate, onTitleUpdate
     }
 
     const dealId = active.id as string;
-    const stageId = over.id as string;
+    const overId = over.id as string;
+    let targetStageId: string | null = null;
 
-    if (dealId && stageId && stageId.startsWith('stage-')) {
-      const actualStageId = stageId.replace('stage-', '');
-      onDealUpdate(dealId, actualStageId);
+    // Check if dropping on a stage column
+    if (overId.startsWith('stage-')) {
+      targetStageId = overId.replace('stage-', '');
+    } 
+    // Check if dropping on another deal card - find which stage that deal belongs to
+    else {
+      const targetDeal = deals.find(d => d.id === overId);
+      if (targetDeal && targetDeal.stage_id) {
+        targetStageId = targetDeal.stage_id;
+      }
+    }
+
+    // Only update if we have a valid stage ID and it's different from current stage
+    if (targetStageId && dealId) {
+      const currentDeal = deals.find(d => d.id === dealId);
+      if (currentDeal && currentDeal.stage_id !== targetStageId) {
+        onDealUpdate(dealId, targetStageId);
+      }
     }
 
     setActiveId(null);
@@ -90,6 +108,9 @@ export default function KanbanBoard({ deals, stages, onDealUpdate, onTitleUpdate
         {stages.map((stage) => {
           const stageDeals = getDealsForStage(stage.id);
           const isOverStage = overId === `stage-${stage.id}`;
+          // Also check if we're dragging over a card that belongs to this stage
+          const isOverCardInStage = overId ? stageDeals.some(d => d.id === overId) : false;
+          const isOver = isOverStage || isOverCardInStage;
           return (
             <KanbanColumn
               key={stage.id}
@@ -97,7 +118,7 @@ export default function KanbanBoard({ deals, stages, onDealUpdate, onTitleUpdate
               deals={stageDeals}
               onTitleUpdate={onTitleUpdate}
               isDragging={!!activeId}
-              isOver={isOverStage}
+              isOver={isOver}
               activeDealId={activeId}
               overId={overId}
             />

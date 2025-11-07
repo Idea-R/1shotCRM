@@ -44,7 +44,10 @@ export default function PipelinePage() {
         .eq('id', dealId);
 
       if (!error) {
-        setDeals(prev => prev.map(d => d.id === dealId ? { ...d, stage_id: stageId } : d));
+        // Reload data to ensure we have the latest state with proper stage relationships
+        await loadData();
+      } else {
+        console.error('Error updating deal:', error);
       }
     } catch (error) {
       console.error('Error updating deal:', error);

@@ -19,7 +19,9 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
   const [volume, setVolume] = useState(0.7);
   const [isMuted, setIsMuted] = useState(false);
   const [showEndModal, setShowEndModal] = useState(false);
+  const [showVolumeControls, setShowVolumeControls] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const mouseIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animationFrameRef = useRef<number>();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mouseRef = useRef({ x: 0, y: 0 });
@@ -44,6 +46,8 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
     alpha: number;
     hue: number;
     maxRadius: number;
+    shape: 'circle' | 'wavy' | 'star' | 'hexagon';
+    waveOffset: number;
   }>>([]);
   const borgsEffectsRef = useRef<Array<{
     x: number;
@@ -113,6 +117,22 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
   const mouseTrailRef = useRef<Array<{ x: number; y: number; time: number }>>([]);
   const isMouseDownRef = useRef(false);
   const previousMousePosRef = useRef({ x: 0, y: 0 });
+  
+  // Cube splitting system for finale
+  const splitCubesRef = useRef<Array<{
+    x: number;
+    y: number;
+    rotationX: number;
+    rotationY: number;
+    rotationZ: number;
+    size: number;
+    vx: number;
+    vy: number;
+    phase: 'splitting' | 'spread' | 'merging';
+  }>>([]);
+  
+  // Track current split phase (1, 2, 4, 8 cubes)
+  const splitPhaseRef = useRef<1 | 2 | 4 | 8 | null>(null);
   
   // Transition smoothing refs
   const previousIntensityRef = useRef(1);
@@ -293,6 +313,19 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       const newX = e.clientX;
       const newY = e.clientY;
       const prevPos = previousMousePosRef.current;
+      
+      // Show volume controls on mouse movement
+      setShowVolumeControls(true);
+      
+      // Clear existing timeout
+      if (mouseIdleTimeoutRef.current) {
+        clearTimeout(mouseIdleTimeoutRef.current);
+      }
+      
+      // Set timeout to hide controls after 2 seconds of idle
+      mouseIdleTimeoutRef.current = setTimeout(() => {
+        setShowVolumeControls(false);
+      }, 2000);
       
       // Track mouse movement for trail
       const distance = Math.sqrt(
@@ -662,22 +695,27 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         ctx.restore();
       }
       
-      // Mouse trail music notes - create notes behind cursor (fewer but larger)
+      // Mouse trail music notes - create notes behind cursor like a fountain trail
       if (mouseTrailRef.current.length > 1 && mouse.x > 0 && mouse.y > 0) {
         const trailLength = mouseTrailRef.current.length;
-        // Create notes from trail positions (every 6th position - reduced frequency)
-        for (let i = Math.max(0, trailLength - 8); i < trailLength; i += 6) {
+        // Create notes from trail positions with more spread (every 4th position, more spread out)
+        for (let i = Math.max(0, trailLength - 12); i < trailLength; i += 4) {
           const trailPos = mouseTrailRef.current[i];
           const age = Date.now() - trailPos.time;
-          if (age < 200 && vocalParticlesRef.current.length < 200) { // Performance limit
+          if (age < 300 && vocalParticlesRef.current.length < 200) { // Performance limit
             const chars = ['♪', '♫', '♬', '♭', '♮', '♯'];
+            // Calculate spread angle based on position in trail (fountain effect)
+            const trailProgress = i / trailLength;
+            const spreadAngle = (trailProgress - 0.5) * Math.PI * 0.6; // Wider spread
+            const spreadDistance = trailProgress * 30; // More distance spread
+            
             vocalParticlesRef.current.push({
-              x: trailPos.x,
-              y: trailPos.y,
-              vx: (Math.random() - 0.5) * 0.3,
-              vy: -0.5 - Math.random() * 0.5,
-              size: 24 + Math.random() * 12, // 200% larger (8*3 = 24, 4*3 = 12)
-              hue: (time * 50 + i * 20) % 360,
+              x: trailPos.x + Math.cos(spreadAngle) * spreadDistance,
+              y: trailPos.y + Math.sin(spreadAngle) * spreadDistance,
+              vx: (Math.random() - 0.5) * 0.8 + Math.cos(spreadAngle) * 0.3, // More horizontal spread
+              vy: -0.8 - Math.random() * 0.6 + Math.sin(spreadAngle) * 0.2, // More vertical spread
+              size: 20 + Math.random() * 10,
+              hue: (time * 50 + i * 25) % 360,
               life: 1.0,
               char: chars[Math.floor(Math.random() * chars.length)],
             });
@@ -940,6 +978,8 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
               alpha: 0.35 * finalIntensity, // Further dimmed (0.49 * 0.7 ≈ 0.35)
               hue: (bass * 2 + ring * 60 + time * 40) % 360,
               maxRadius: 500,
+              shape: 'circle',
+              waveOffset: 0,
             });
           }
         }
@@ -982,8 +1022,128 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // FINALE EFFECT (3:50-end) - All systems go (reduced music notes)
+      // FINALE EFFECT (3:50-end) - Cube splitting crescendo
+      // Calculate base cube size first (needed for splitting initialization)
+      const pulseFactor = 1 + Math.sin(time * 0.5) * 0.15;
+      const minCubeSize = 40;
+      const baseCubeSize = Math.max(minCubeSize, (60 + (average / 15)) * pulseFactor * finalIntensity);
+      
       if (isFinaleSection) {
+        const finaleProgress = Math.min(1, (currentTime - 230) / Math.max(1, (audioRef.current?.duration || 240) - 230));
+        
+        // Initialize cube splitting phases - ensure we always have cubes during finale
+        if (splitCubesRef.current.length === 0) {
+          // Start with 1 cube at center
+          splitCubesRef.current.push({
+            x: centerX,
+            y: centerY,
+            rotationX: cubeRotationX,
+            rotationY: cubeRotationY,
+            rotationZ: cubeRotationZ,
+            size: baseCubeSize,
+            vx: 0,
+            vy: 0,
+            phase: 'splitting',
+          });
+          splitPhaseRef.current = 1;
+        }
+        
+        // Phase-based splitting - more lenient conditions
+        // Phase 1: Split into 2 cubes (around 5-20% of finale)
+        if (splitPhaseRef.current === 1 && finaleProgress >= 0.05 && finaleProgress < 0.25) {
+          const cube = splitCubesRef.current[0];
+          if (cube && cube.phase === 'splitting') {
+            splitCubesRef.current = [
+              { ...cube, x: centerX - 50, vx: -0.5, phase: 'spread' },
+              { ...cube, x: centerX + 50, vx: 0.5, phase: 'spread' },
+            ];
+            splitPhaseRef.current = 2;
+          }
+        }
+        
+        // Phase 2: Split into 4 cubes (around 20-55% of finale)
+        if (splitPhaseRef.current === 2 && finaleProgress >= 0.2 && finaleProgress < 0.6) {
+          const newCubes: typeof splitCubesRef.current = [];
+          splitCubesRef.current.forEach(cube => {
+            if (cube.phase === 'spread' && newCubes.length < 4) {
+              newCubes.push(
+                { ...cube, y: cube.y - 30, vy: -0.3, phase: 'spread' },
+                { ...cube, y: cube.y + 30, vy: 0.3, phase: 'spread' }
+              );
+            }
+          });
+          if (newCubes.length === 4) {
+            splitCubesRef.current = newCubes;
+            splitPhaseRef.current = 4;
+          }
+        }
+        
+        // Phase 3: Split into 8 cubes (around 50-85% of finale)
+        if (splitPhaseRef.current === 4 && finaleProgress >= 0.5 && finaleProgress < 0.9) {
+          const newCubes: typeof splitCubesRef.current = [];
+          splitCubesRef.current.forEach(cube => {
+            if (cube.phase === 'spread' && newCubes.length < 8) {
+              const angle = Math.atan2(cube.y - centerY, cube.x - centerX);
+              newCubes.push(
+                { ...cube, x: cube.x - Math.cos(angle) * 20, y: cube.y - Math.sin(angle) * 20, phase: 'spread' },
+                { ...cube, x: cube.x + Math.cos(angle) * 20, y: cube.y + Math.sin(angle) * 20, phase: 'spread' }
+              );
+            }
+          });
+          if (newCubes.length === 8) {
+            splitCubesRef.current = newCubes;
+            splitPhaseRef.current = 8;
+          }
+        }
+        
+        // Update spread cubes movement
+        splitCubesRef.current.forEach(cube => {
+          if (cube.phase === 'spread') {
+            cube.x += cube.vx;
+            cube.y += cube.vy;
+            // Slow down over time
+            cube.vx *= 0.98;
+            cube.vy *= 0.98;
+          }
+        });
+        
+        // Phase 4: Merge back together (around 85-100% of finale)
+        if (splitPhaseRef.current !== null && splitPhaseRef.current > 1 && finaleProgress >= 0.85) {
+          splitCubesRef.current.forEach(cube => {
+            if (cube.phase === 'spread') {
+              cube.phase = 'merging';
+            }
+            const dx = centerX - cube.x;
+            const dy = centerY - cube.y;
+            cube.vx = dx * 0.05;
+            cube.vy = dy * 0.05;
+            cube.x += cube.vx;
+            cube.y += cube.vy;
+          });
+          
+          // When all cubes are close enough, merge into one
+          const allClose = splitCubesRef.current.every(cube => {
+            const dx = centerX - cube.x;
+            const dy = centerY - cube.y;
+            return Math.sqrt(dx * dx + dy * dy) < 15;
+          });
+          
+          if (allClose && splitCubesRef.current.length > 1) {
+            splitCubesRef.current = [{
+              x: centerX,
+              y: centerY,
+              rotationX: cubeRotationX,
+              rotationY: cubeRotationY,
+              rotationZ: cubeRotationZ,
+              size: baseCubeSize,
+              vx: 0,
+              vy: 0,
+              phase: 'splitting',
+            }];
+            splitPhaseRef.current = 1;
+          }
+        }
+        
         // Continuous music notes from bottom during finale (reduced spawn rate)
         const chars = ['♪', '♫', '♬', '♭', '♮', '♯', '♪'];
         if (vocalParticlesRef.current.length < 200) {
@@ -1029,17 +1189,20 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
           });
         }
         
-        // Maximum intensity on all effects
-        if (bass > 80) {
-          for (let i = 0; i < 5; i++) {
-            pulsatingRingsRef.current.push({
-              radius: 0,
-              speed: 5 + Math.random() * 3,
-              alpha: 0.4 * finalIntensity, // Further dimmed (0.56 * 0.7 ≈ 0.4)
-              hue: (bass * 2 + i * 72 + time * 50) % 360,
-              maxRadius: 600,
-            });
-          }
+        // Maximum intensity on all effects - 50% reduction, varied shapes, dimmed by another 30%
+        if (bass > 80 && Math.random() > 0.5) { // 50% reduction in spawn rate
+          const shapes: Array<'circle' | 'wavy' | 'star' | 'hexagon'> = ['circle', 'wavy', 'star', 'hexagon'];
+          const shape = shapes[Math.floor(Math.random() * shapes.length)];
+          
+          pulsatingRingsRef.current.push({
+            radius: 0,
+            speed: 5 + Math.random() * 3,
+            alpha: 0.196 * finalIntensity, // Dimmed by another 30% (0.28 * 0.7 = 0.196)
+            hue: (bass * 2 + Math.random() * 360 + time * 50) % 360,
+            maxRadius: 600,
+            shape: shape,
+            waveOffset: Math.random() * Math.PI * 2,
+          });
         }
       }
       
@@ -1103,10 +1266,12 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
           alpha: 0.3 * ringIntensity, // Further dimmed (0.42 * 0.7 ≈ 0.3)
           hue: (bass * 2 + time * 30) % 360,
           maxRadius: 300 + (bass * 2) * timeIntensityMultiplier,
+          shape: 'circle',
+          waveOffset: 0,
         });
       }
       
-      // Update and draw pulsating rings
+      // Update and draw pulsating rings with varied shapes
       for (let i = pulsatingRingsRef.current.length - 1; i >= 0; i--) {
         const ring = pulsatingRingsRef.current[i];
         ring.radius += ring.speed;
@@ -1121,17 +1286,65 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         ctx.globalAlpha = ring.alpha; // Already dimmed in creation
         ctx.strokeStyle = `hsl(${ring.hue}, 100%, 60%)`;
         ctx.lineWidth = 3;
+        ctx.translate(centerX, centerY);
+        
         ctx.beginPath();
-        ctx.arc(centerX, centerY, ring.radius, 0, Math.PI * 2);
+        
+        if (ring.shape === 'circle') {
+          // Standard circle
+          ctx.arc(0, 0, ring.radius, 0, Math.PI * 2);
+        } else if (ring.shape === 'wavy') {
+          // Wavy ring with sine wave modulation
+          const points = 64;
+          const waveAmplitude = 15;
+          const waveFrequency = 8;
+          for (let j = 0; j <= points; j++) {
+            const angle = (j / points) * Math.PI * 2;
+            const wave = Math.sin(angle * waveFrequency + ring.waveOffset + time * 2) * waveAmplitude;
+            const r = ring.radius + wave;
+            const x = Math.cos(angle) * r;
+            const y = Math.sin(angle) * r;
+            if (j === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.closePath();
+        } else if (ring.shape === 'star') {
+          // Star shape
+          const points = 8;
+          const outerRadius = ring.radius;
+          const innerRadius = ring.radius * 0.6;
+          for (let j = 0; j <= points * 2; j++) {
+            const angle = (j / (points * 2)) * Math.PI * 2;
+            const r = j % 2 === 0 ? outerRadius : innerRadius;
+            const x = Math.cos(angle) * r;
+            const y = Math.sin(angle) * r;
+            if (j === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.closePath();
+        } else if (ring.shape === 'hexagon') {
+          // Hexagon shape
+          const sides = 6;
+          for (let j = 0; j <= sides; j++) {
+            const angle = (j / sides) * Math.PI * 2;
+            const x = Math.cos(angle) * ring.radius;
+            const y = Math.sin(angle) * ring.radius;
+            if (j === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.closePath();
+        }
+        
         ctx.stroke();
         
-        // Draw multiple concentric rings for better effect (also dimmed)
-        if (ring.radius > 20) {
+        // Draw multiple concentric rings for better effect (also dimmed) - only for circles
+        if (ring.shape === 'circle' && ring.radius > 20) {
           ctx.globalAlpha = ring.alpha * 0.5; // Dimmed inner ring
           ctx.beginPath();
-          ctx.arc(centerX, centerY, ring.radius - 15, 0, Math.PI * 2);
+          ctx.arc(0, 0, ring.radius - 15, 0, Math.PI * 2);
           ctx.stroke();
         }
+        
         ctx.restore();
       }
       
@@ -1245,19 +1458,25 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // Audio Wave Bars at Top and Bottom - FULL WIDTH coverage
+      // Audio Wave Bars at Top and Bottom - FULL WIDTH coverage from edge to edge
       const barHeight = 100;
+      // Increase numBars to ensure full coverage, especially for widescreen monitors
+      const numBars = Math.max(bufferLength, Math.floor(canvas.width / 1.5));
+      // Extend bars slightly beyond screen width (110% of canvas width)
+      const extendedWidth = canvas.width * 1.1;
       
-      // Top bars - extend DOWNWARD from top edge, full width coverage
-      const topBarWidth = canvas.width / bufferLength;
-      for (let i = 0; i < bufferLength; i++) {
-        const barValue = (dataArray[i] / 255) * barHeight * finalIntensity;
-        const hue = (i / bufferLength) * 360 + time * 30;
+      // Top bars - extend DOWNWARD from top edge, full width coverage with extension
+      for (let i = 0; i < numBars; i++) {
+        const dataIndex = Math.floor((i / numBars) * bufferLength);
+        const barValue = (dataArray[dataIndex] / 255) * barHeight * finalIntensity;
+        const hue = (i / numBars) * 360 + time * 30;
         const pulse = 1 + Math.sin(time * 5 + i * 0.1) * 0.2;
         
-        if (barValue > 2) {
-          const x = (i / bufferLength) * canvas.width; // Ensure full width coverage
-          const barW = Math.max(1, topBarWidth); // Minimum 1px width
+        // Lower threshold to ensure visibility even at low audio values
+        if (barValue > 1) {
+          const x = (i / numBars) * extendedWidth; // Extended width coverage
+          const nextX = ((i + 1) / numBars) * extendedWidth;
+          const barW = Math.max(1, nextX - x); // Width to fill gap
           
           const gradient = ctx.createLinearGradient(x, 0, x, barValue * pulse);
           gradient.addColorStop(0, `hsla(${hue}, 100%, 70%, 0.9)`);
@@ -1279,16 +1498,18 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // Bottom bars - extend UPWARD from bottom edge, full width coverage
-      const bottomBarWidth = canvas.width / bufferLength;
-      for (let i = 0; i < bufferLength; i++) {
-        const barValue = (dataArray[i] / 255) * barHeight * finalIntensity;
-        const hue = (i / bufferLength) * 360 + time * 30;
+      // Bottom bars - extend UPWARD from bottom edge, full width coverage with extension
+      for (let i = 0; i < numBars; i++) {
+        const dataIndex = Math.floor((i / numBars) * bufferLength);
+        const barValue = (dataArray[dataIndex] / 255) * barHeight * finalIntensity;
+        const hue = (i / numBars) * 360 + time * 30;
         const pulse = 1 + Math.sin(time * 5 + i * 0.1) * 0.2;
         
-        if (barValue > 2) {
-          const x = (i / bufferLength) * canvas.width; // Ensure full width coverage
-          const barW = Math.max(1, bottomBarWidth); // Minimum 1px width
+        // Lower threshold to ensure visibility even at low audio values
+        if (barValue > 1) {
+          const x = (i / numBars) * extendedWidth; // Extended width coverage
+          const nextX = ((i + 1) / numBars) * extendedWidth;
+          const barW = Math.max(1, nextX - x); // Width to fill gap
           
           const gradient = ctx.createLinearGradient(x, canvas.height - barValue * pulse, x, canvas.height);
           gradient.addColorStop(0, `hsla(${hue}, 100%, 70%, 0.9)`);
@@ -1310,81 +1531,107 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         }
       }
       
-      // 3D Rotating Cube in center - Enhanced with time intensity and minimum size
-      const pulseFactor = 1 + Math.sin(time * 0.5) * 0.15;
+      // 3D Rotating Cube(s) - Single cube or split cubes during finale
       const cubeRotationSpeed = isLullSection ? 0.5 : timeIntensityMultiplier;
       cubeRotationX += (0.002 + (mid / 5000)) * effectIntensity * cubeRotationSpeed;
       cubeRotationY += (0.003 + (bass / 5000)) * effectIntensity * cubeRotationSpeed;
       cubeRotationZ += (0.002 + (treble / 5000)) * effectIntensity * cubeRotationSpeed;
       
-      const minCubeSize = 40; // Minimum cube size
-      const cubeSize = Math.max(minCubeSize, (60 + (average / 15)) * pulseFactor * finalIntensity);
       const vertices = [
         [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
         [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]
       ];
       
-      // Rotate vertices
-      const rotatedVertices = vertices.map(v => {
-        let [x, y, z] = v;
-        
-        // Rotate around X axis
-        const y1 = y * Math.cos(cubeRotationX) - z * Math.sin(cubeRotationX);
-        const z1 = y * Math.sin(cubeRotationX) + z * Math.cos(cubeRotationX);
-        y = y1;
-        z = z1;
-        
-        // Rotate around Y axis
-        const x1 = x * Math.cos(cubeRotationY) + z * Math.sin(cubeRotationY);
-        const z2 = -x * Math.sin(cubeRotationY) + z * Math.cos(cubeRotationY);
-        x = x1;
-        z = z2;
-        
-        // Rotate around Z axis
-        const x2 = x * Math.cos(cubeRotationZ) - y * Math.sin(cubeRotationZ);
-        const y2 = x * Math.sin(cubeRotationZ) + y * Math.cos(cubeRotationZ);
-        x = x2;
-        y = y2;
-        
-        return {
-          x: centerX + x * cubeSize,
-          y: centerY + y * cubeSize,
-          z: z * cubeSize
-        };
-      });
+      // Draw cubes - always use split cubes during finale if available, otherwise single cube
+      const cubesToDraw = isFinaleSection && splitCubesRef.current.length > 0 
+        ? splitCubesRef.current 
+        : [{
+            x: centerX,
+            y: centerY,
+            rotationX: cubeRotationX,
+            rotationY: cubeRotationY,
+            rotationZ: cubeRotationZ,
+            size: baseCubeSize,
+            vx: 0,
+            vy: 0,
+            phase: 'splitting' as const,
+          }];
       
-      // Draw cube faces
-      const faces = [
-        [0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4],
-        [2, 3, 7, 6], [0, 3, 7, 4], [1, 2, 6, 5]
-      ];
-      
+      cubesToDraw.forEach((cubeData) => {
+        const cubeSize = cubeData.size || baseCubeSize;
+        const rotX = cubeData.rotationX !== undefined ? cubeData.rotationX : cubeRotationX;
+        const rotY = cubeData.rotationY !== undefined ? cubeData.rotationY : cubeRotationY;
+        const rotZ = cubeData.rotationZ !== undefined ? cubeData.rotationZ : cubeRotationZ;
+        
+        // Rotate vertices
+        const rotatedVertices = vertices.map(v => {
+          let [x, y, z] = v;
+          
+          // Rotate around X axis
+          const y1 = y * Math.cos(rotX) - z * Math.sin(rotX);
+          const z1 = y * Math.sin(rotX) + z * Math.cos(rotX);
+          y = y1;
+          z = z1;
+          
+          // Rotate around Y axis
+          const x1 = x * Math.cos(rotY) + z * Math.sin(rotY);
+          const z2 = -x * Math.sin(rotY) + z * Math.cos(rotY);
+          x = x1;
+          z = z2;
+          
+          // Rotate around Z axis
+          const x2 = x * Math.cos(rotZ) - y * Math.sin(rotZ);
+          const y2 = x * Math.sin(rotZ) + y * Math.cos(rotZ);
+          x = x2;
+          y = y2;
+          
+          return {
+            x: cubeData.x + x * cubeSize,
+            y: cubeData.y + y * cubeSize,
+            z: z * cubeSize
+          };
+        });
+        
+        // Draw cube faces
+        const faces = [
+          [0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4],
+          [2, 3, 7, 6], [0, 3, 7, 4], [1, 2, 6, 5]
+        ];
+        
         ctx.save();
         ctx.globalAlpha = 0.7 * finalIntensity;
-      
-      faces.forEach((face, idx) => {
-        const points = face.map(i => rotatedVertices[i]);
-        const avgZ = points.reduce((sum, p) => sum + p.z, 0) / points.length;
         
-        // Only draw front faces
-        if (avgZ > -cubeSize) {
-          const hue = (idx * 60 + time * 30 + average) % 360;
-          ctx.fillStyle = `hsla(${hue}, 100%, 60%, 0.4)`;
-          ctx.strokeStyle = `hsl(${hue}, 100%, 70%)`;
-          ctx.lineWidth = 2;
+        faces.forEach((face, idx) => {
+          const points = face.map(i => rotatedVertices[i]);
+          const avgZ = points.reduce((sum, p) => sum + p.z, 0) / points.length;
           
-          ctx.beginPath();
-          ctx.moveTo(points[0].x, points[0].y);
-          for (let i = 1; i < points.length; i++) {
-            ctx.lineTo(points[i].x, points[i].y);
+          // Only draw front faces
+          if (avgZ > -cubeSize) {
+            const hue = (idx * 60 + time * 30 + average) % 360;
+            ctx.fillStyle = `hsla(${hue}, 100%, 60%, 0.4)`;
+            ctx.strokeStyle = `hsl(${hue}, 100%, 70%)`;
+            ctx.lineWidth = 2;
+            
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {
+              ctx.lineTo(points[i].x, points[i].y);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
           }
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
+        });
+        
+        ctx.restore();
+        
+        // Update rotations for split cubes
+        if (isFinaleSection && cubeData.phase !== 'merging') {
+          cubeData.rotationX = (cubeData.rotationX !== undefined ? cubeData.rotationX : cubeRotationX) + (0.002 + (mid / 5000)) * effectIntensity * cubeRotationSpeed;
+          cubeData.rotationY = (cubeData.rotationY !== undefined ? cubeData.rotationY : cubeRotationY) + (0.003 + (bass / 5000)) * effectIntensity * cubeRotationSpeed;
+          cubeData.rotationZ = (cubeData.rotationZ !== undefined ? cubeData.rotationZ : cubeRotationZ) + (0.002 + (treble / 5000)) * effectIntensity * cubeRotationSpeed;
         }
       });
-      
-      ctx.restore();
       
       // Update and draw click explosions (performance limit)
       for (let i = clickExplosionsRef.current.length - 1; i >= 0; i--) {
@@ -1620,6 +1867,9 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
+      if (mouseIdleTimeoutRef.current) {
+        clearTimeout(mouseIdleTimeoutRef.current);
+      }
     };
   }, [analyser, isPlaying, volume, isMuted]);
 
@@ -1775,8 +2025,28 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         </div>
       )}
       
-      {/* Volume Slider - Vertical on right side */}
-      <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-3">
+      {/* Volume Slider - Vertical on right side, only visible on mouse movement */}
+      <div 
+        className={`absolute right-4 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-3 transition-opacity duration-300 ${
+          showVolumeControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        onMouseEnter={() => {
+          // Keep visible when hovering over controls
+          setShowVolumeControls(true);
+          if (mouseIdleTimeoutRef.current) {
+            clearTimeout(mouseIdleTimeoutRef.current);
+          }
+        }}
+        onMouseLeave={() => {
+          // Start fade-out timer when leaving controls
+          if (mouseIdleTimeoutRef.current) {
+            clearTimeout(mouseIdleTimeoutRef.current);
+          }
+          mouseIdleTimeoutRef.current = setTimeout(() => {
+            setShowVolumeControls(false);
+          }, 2000);
+        }}
+      >
         <button
           onClick={handleMuteToggle}
           className="w-10 h-10 rounded-full bg-gray-800/80 hover:bg-gray-700/90 text-white flex items-center justify-center shadow-lg backdrop-blur-sm transition-all"
@@ -1796,7 +2066,8 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
               onChange={handleVolumeChange}
               className="volume-slider"
               style={{
-                WebkitAppearance: 'slider-vertical' as any,
+                writingMode: 'vertical-lr',
+                direction: 'rtl',
                 width: '8px',
                 height: '200px',
                 cursor: 'pointer',
@@ -1821,9 +2092,6 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
               }}
             />
           </div>
-          <span className="text-white text-xs font-medium bg-gray-800/80 px-2 py-1 rounded backdrop-blur-sm">
-            {Math.round((isMuted ? 0 : volume) * 100)}%
-          </span>
         </div>
         
         {/* Play/Pause button integrated */}
@@ -1838,10 +2106,28 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
         )}
       </div>
       
-      {/* Close button */}
+      {/* Close button - only visible on mouse movement */}
       <button
         onClick={handleClose}
-        className="absolute top-4 right-4 z-20 text-white hover:text-gray-300 transition-colors"
+        className={`absolute top-4 right-4 z-20 text-white hover:text-gray-300 transition-opacity duration-300 ${
+          showVolumeControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        onMouseEnter={() => {
+          // Keep visible when hovering over close button
+          setShowVolumeControls(true);
+          if (mouseIdleTimeoutRef.current) {
+            clearTimeout(mouseIdleTimeoutRef.current);
+          }
+        }}
+        onMouseLeave={() => {
+          // Start fade-out timer when leaving close button
+          if (mouseIdleTimeoutRef.current) {
+            clearTimeout(mouseIdleTimeoutRef.current);
+          }
+          mouseIdleTimeoutRef.current = setTimeout(() => {
+            setShowVolumeControls(false);
+          }, 2000);
+        }}
       >
         <X className="w-6 h-6" />
       </button>
@@ -1863,7 +2149,7 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
             className="bg-gray-900/95 border border-gray-700 rounded-lg p-8 max-w-md mx-4 text-center relative overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <GlitchyText text="Thanks for watching! Follow me on Suno at MadXent." />
+            <GlitchyText text="Thanks for listening! Follow me on Suno. @MadXent" />
             <button
               onClick={() => {
                 setShowEndModal(false);
@@ -1880,56 +2166,83 @@ export default function AudioCanvasMode({ onClose }: AudioCanvasModeProps) {
   );
 }
 
-// Glitchy Text Component
+// Glitchy Text Component - glitches then transforms into actual text preserving spaces
 function GlitchyText({ text }: { text: string }) {
   const [displayedText, setDisplayedText] = useState('');
   const [glitchChars, setGlitchChars] = useState<Array<{ char: string; glitch: boolean }>>([]);
+  const [phase, setPhase] = useState<'glitching' | 'spelling'>('glitching');
+  const [spellingIndex, setSpellingIndex] = useState(0);
+  const glitchDurationRef = useRef(0);
   
   useEffect(() => {
-    let currentIndex = 0;
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+    const GLITCH_DURATION = 2000; // 2 seconds of glitching
+    const SPELLING_DELAY = 80; // Delay between characters when spelling
     
     const interval = setInterval(() => {
-      if (currentIndex < text.length) {
-        // Reveal next character
-        setDisplayedText(text.slice(0, currentIndex + 1));
+      if (phase === 'glitching') {
+        glitchDurationRef.current += 50;
         
-        // Add glitch effect to current and previous characters
-        const newGlitchChars = Array.from({ length: currentIndex + 1 }, (_, i) => ({
-          char: i === currentIndex ? text[i] : text[i],
-          glitch: Math.random() > 0.7,
-        }));
-        setGlitchChars(newGlitchChars);
+        // Random glitch characters preserving structure (spaces stay as spaces)
+        const glitchText = Array.from(text, (char, i) => {
+          if (char === ' ') return ' ';
+          return chars[Math.floor(Math.random() * chars.length)];
+        }).join('');
+        setDisplayedText(glitchText);
         
-        currentIndex++;
-      } else {
-        // Continue glitch effect on all characters
-        setGlitchChars(prev => prev.map(g => ({
-          char: g.char,
-          glitch: Math.random() > 0.85,
+        // Add glitch effect
+        setGlitchChars(Array.from(text, (char, i) => ({
+          char: char === ' ' ? ' ' : '',
+          glitch: char !== ' ' && Math.random() > 0.5,
         })));
+        
+        // After glitch duration, switch to spelling phase
+        if (glitchDurationRef.current >= GLITCH_DURATION) {
+          setPhase('spelling');
+          setDisplayedText('');
+          setSpellingIndex(0);
+        }
+      } else {
+        // Spelling phase - slowly reveal actual text character by character, preserving spaces
+        if (spellingIndex < text.length) {
+          const newText = text.slice(0, spellingIndex + 1);
+          setDisplayedText(newText);
+          setGlitchChars(Array.from(newText, (char, i) => ({
+            char: char,
+            glitch: false,
+          })));
+          setSpellingIndex(prev => prev + 1);
+        }
       }
-    }, 50);
+    }, phase === 'glitching' ? 50 : SPELLING_DELAY);
     
     return () => clearInterval(interval);
-  }, [text]);
+  }, [text, phase, spellingIndex]);
   
   return (
-    <div className="text-2xl font-bold text-white relative">
-      {displayedText.split('').map((char, i) => {
+    <div className="text-2xl font-bold text-white relative font-mono bg-gray-900/50 border border-gray-700 rounded px-4 py-3 inline-block">
+      {Array.from(text).map((char, i) => {
+        const displayedChar = i < displayedText.length ? displayedText[i] : '';
         const glitch = glitchChars[i]?.glitch || false;
-        const glitchChar = glitch ? String.fromCharCode(33 + Math.floor(Math.random() * 94)) : char;
+        const isSpace = char === ' ';
+        const glitchChar = glitch && phase === 'glitching' && !isSpace
+          ? String.fromCharCode(33 + Math.floor(Math.random() * 94)) 
+          : (displayedChar || (isSpace ? ' ' : ''));
         
         return (
           <span
             key={i}
-            className={`inline-block ${glitch ? 'text-red-500' : 'text-white'}`}
+            className={`inline-block ${glitch && phase === 'glitching' ? 'text-red-500' : 'text-white'}`}
             style={{
-              transform: glitch ? `translate(${Math.random() * 4 - 2}px, ${Math.random() * 4 - 2}px)` : 'none',
-              textShadow: glitch
+              transform: glitch && phase === 'glitching' 
+                ? `translate(${Math.random() * 4 - 2}px, ${Math.random() * 4 - 2}px)` 
+                : 'none',
+              textShadow: glitch && phase === 'glitching'
                 ? `2px 0 0 #ff0000, -2px 0 0 #00ffff`
                 : 'none',
-              transition: 'all 0.1s',
+              transition: phase === 'spelling' ? 'all 0.2s ease' : 'all 0.1s',
+              opacity: phase === 'spelling' && i < spellingIndex ? 1 : (glitch && phase === 'glitching' ? 0.7 : 1),
+              fontFamily: "'Courier New', monospace",
             }}
           >
             {glitchChar}

@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Activity, Task } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { format } from 'date-fns';
 import { Plus, FileText, Phone, Mail, Calendar, CheckSquare } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
@@ -43,9 +44,16 @@ export default function ActivityLog({ dealId, contactId, activities }: ActivityL
     abortControllerRef.current = abortController;
     
     try {
+      // Get auth token for authenticated users
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       const response = await fetch('/api/activities', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           ...newActivity,
           deal_id: dealId,

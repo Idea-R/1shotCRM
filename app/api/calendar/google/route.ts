@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { google } from 'googleapis';
 import { supabase } from '@/lib/supabase';
+import { listGoogleCalendars, getGoogleCalendar, syncCalendarEvents } from '@/lib/google-calendar-enhanced';
+import { requireAuth } from '@/lib/api-auth';
 
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
@@ -29,23 +31,73 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, authUrl });
     }
 
-    // Get user's calendar integration
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    if (action === 'calendars') {
+      // Get authenticated user
+      const authResult = await requireAuth(req);
+      if (authResult instanceof NextResponse) return authResult;
+
+      // Get user's calendar integration
+      const { data: integration, error: integrationError } = await supabase
+        .from('calendar_integrations')
+        .select('*')
+        .eq('user_id', authResult.user.id)
+        .eq('provider', 'google')
+        .single();
+
+      if (integrationError || !integration) {
+        return NextResponse.json(
+          { success: false, error: 'Google Calendar not connected' },
+          { status: 400 }
+        );
+      }
+
+      // List calendars
+      const calendars = await listGoogleCalendars(integration.refresh_token);
+
+      return NextResponse.json({ success: true, data: calendars });
     }
 
-    const token = authHeader.substring(7);
-    const { data: { user } } = await supabase.auth.getUser(token);
-    
-    if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    if (action === 'sync') {
+      // Get authenticated user
+      const authResult = await requireAuth(req);
+      if (authResult instanceof NextResponse) return authResult;
+
+      const calendarId = searchParams.get('calendar_id') || 'primary';
+      const syncToken = searchParams.get('sync_token') || undefined;
+
+      // Get user's calendar integration
+      const { data: integration, error: integrationError } = await supabase
+        .from('calendar_integrations')
+        .select('*')
+        .eq('user_id', authResult.user.id)
+        .eq('provider', 'google')
+        .single();
+
+      if (integrationError || !integration) {
+        return NextResponse.json(
+          { success: false, error: 'Google Calendar not connected' },
+          { status: 400 }
+        );
+      }
+
+      // Sync events
+      const syncResult = await syncCalendarEvents(
+        integration.refresh_token,
+        calendarId,
+        syncToken
+      );
+
+      return NextResponse.json({ success: true, data: syncResult });
     }
+
+    // Get user's calendar integration status
+    const authResult = await requireAuth(req);
+    if (authResult instanceof NextResponse) return authResult;
 
     const { data: integration, error } = await supabase
       .from('calendar_integrations')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', authResult.user.id)
       .eq('provider', 'google')
       .single();
 
@@ -76,30 +128,21 @@ export async function POST(req: NextRequest) {
     }
 
     // Get user from session
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.substring(7);
-    const { data: { user } } = await supabase.auth.getUser(token);
-    
-    if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await requireAuth(req);
+    if (authResult instanceof NextResponse) return authResult;
 
     // Save or update integration
     const { data, error } = await supabase
       .from('calendar_integrations')
       .upsert({
-        user_id: user.id,
+        user_id: authResult.user.id,
         provider: 'google',
         refresh_token: tokens.refresh_token,
         access_token: tokens.access_token,
         token_expires_at: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null,
         updated_at: new Date().toISOString(),
       }, {
-        onConflict: 'user_id',
+        onConflict: 'user_id,provider',
       })
       .select()
       .single();
@@ -114,22 +157,13 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.substring(7);
-    const { data: { user } } = await supabase.auth.getUser(token);
-    
-    if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
+    const authResult = await requireAuth(req);
+    if (authResult instanceof NextResponse) return authResult;
 
     const { error } = await supabase
       .from('calendar_integrations')
       .delete()
-      .eq('user_id', user.id)
+      .eq('user_id', authResult.user.id)
       .eq('provider', 'google');
 
     if (error) throw error;
@@ -139,4 +173,3 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
-

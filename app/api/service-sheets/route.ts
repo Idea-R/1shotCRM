@@ -3,39 +3,30 @@ import { supabase } from '@/lib/supabase';
 import { requireAuthAndPermission } from '@/lib/api-auth';
 import { logAction } from '@/lib/audit-logger';
 
-// Map entity types to storage buckets
-const getBucketForEntityType = (entityType: string): string => {
-  switch (entityType) {
-    case 'service':
-      return 'service-sheets';
-    case 'appliance':
-      return 'appliance-images';
-    case 'parts_diagram':
-      return 'parts-diagrams';
-    default:
-      return 'attachments'; // Default bucket
-  }
-};
-
+/**
+ * Service Sheets API Routes
+ * Service sheets are stored as attachments with entity_type='service_sheet'
+ * Files are stored in the 'service-sheets' bucket
+ */
 export async function GET(req: NextRequest) {
   try {
     // Check permission
-    const authResult = await requireAuthAndPermission(req, 'attachments:read');
+    const authResult = await requireAuthAndPermission(req, 'services:read');
     if (authResult instanceof NextResponse) return authResult;
 
     const { searchParams } = new URL(req.url);
-    const entityType = searchParams.get('entity_type');
-    const entityId = searchParams.get('entity_id');
+    const serviceId = searchParams.get('service_id');
     const applianceId = searchParams.get('appliance_id');
-    const tags = searchParams.get('tags'); // Comma-separated tags
+    const tags = searchParams.get('tags');
     
     let query = supabase
       .from('attachments')
       .select('*')
+      .eq('entity_type', 'service_sheet')
       .order('created_at', { ascending: false });
     
-    if (entityType && entityId) {
-      query = query.eq('entity_type', entityType).eq('entity_id', entityId);
+    if (serviceId) {
+      query = query.eq('entity_id', serviceId);
     }
 
     if (applianceId) {
@@ -55,9 +46,9 @@ export async function GET(req: NextRequest) {
     await logAction(
       authResult.user.id,
       'read',
-      'attachment',
+      'service_sheet',
       null,
-      { entityType, entityId, applianceId, tags },
+      { serviceId, applianceId, tags },
       req
     );
     
@@ -70,59 +61,51 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     // Check permission
-    const authResult = await requireAuthAndPermission(req, 'attachments:write');
+    const authResult = await requireAuthAndPermission(req, 'services:write');
     if (authResult instanceof NextResponse) return authResult;
 
     // Support both FormData and JSON
     let file: File | null = null;
-    let entityType: string | null = null;
-    let entityId: string | null = null;
+    let serviceId: string | null = null;
     let applianceId: string | null = null;
+    let title: string | null = null;
+    let description: string | null = null;
     let tags: string[] | null = null;
-    let uploadSource: string = 'web';
-    let organizationId: string | null = null;
 
     const contentType = req.headers.get('content-type');
     
     if (contentType?.includes('multipart/form-data')) {
-      // Handle FormData
       const formData = await req.formData();
       file = formData.get('file') as File;
-      entityType = formData.get('entity_type') as string;
-      entityId = formData.get('entity_id') as string;
+      serviceId = formData.get('service_id') as string;
       applianceId = formData.get('appliance_id') as string || null;
+      title = formData.get('title') as string || null;
+      description = formData.get('description') as string || null;
       const tagsStr = formData.get('tags') as string;
       tags = tagsStr ? tagsStr.split(',').map(t => t.trim()) : null;
-      uploadSource = (formData.get('upload_source') as string) || 'web';
-      organizationId = formData.get('organization_id') as string || null;
     } else {
-      // Handle JSON (for base64 encoded files)
       const body = await req.json();
       file = body.file;
-      entityType = body.entity_type;
-      entityId = body.entity_id;
+      serviceId = body.service_id;
       applianceId = body.appliance_id || null;
+      title = body.title || null;
+      description = body.description || null;
       tags = body.tags ? (Array.isArray(body.tags) ? body.tags : body.tags.split(',').map((t: string) => t.trim())) : null;
-      uploadSource = body.upload_source || 'web';
-      organizationId = body.organization_id || null;
     }
     
-    if (!file || !entityType || !entityId) {
+    if (!file || !serviceId) {
       return NextResponse.json(
-        { success: false, error: 'File, entity_type, and entity_id are required' },
+        { success: false, error: 'File and service_id are required' },
         { status: 400 }
       );
     }
 
-    // Determine bucket based on entity type
-    const bucket = getBucketForEntityType(entityType);
-    
     // Generate unique file path
-    const fileExt = file instanceof File ? file.name.split('.').pop() : 'bin';
+    const fileExt = file instanceof File ? file.name.split('.').pop() : 'pdf';
     const fileName = file instanceof File ? file.name : `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-    const filePath = `${entityType}/${entityId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+    const filePath = `service-sheets/${serviceId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
     
-    // Convert base64 or File to Blob if needed
+    // Convert file to Blob
     let fileBlob: Blob;
     let fileSize: number;
     let mimeType: string;
@@ -132,7 +115,6 @@ export async function POST(req: NextRequest) {
       fileSize = file.size;
       mimeType = file.type;
     } else if (typeof file === 'string' && file.startsWith('data:')) {
-      // Base64 data URL
       const base64Data = file.split(',')[1];
       mimeType = file.split(';')[0].split(':')[1];
       const binaryString = atob(base64Data);
@@ -151,7 +133,7 @@ export async function POST(req: NextRequest) {
 
     // Upload to Supabase Storage
     const { data: uploadData, error: uploadError } = await supabase.storage
-      .from(bucket)
+      .from('service-sheets')
       .upload(filePath, fileBlob, {
         contentType: mimeType,
         upsert: false,
@@ -161,24 +143,23 @@ export async function POST(req: NextRequest) {
     
     // Get public URL
     const { data: urlData } = supabase.storage
-      .from(bucket)
+      .from('service-sheets')
       .getPublicUrl(filePath);
     
     // Save attachment record
     const { data, error } = await supabase
       .from('attachments')
       .insert({
-        entity_type: entityType,
-        entity_id: entityId,
+        entity_type: 'service_sheet',
+        entity_id: serviceId,
         appliance_id: applianceId,
-        file_name: fileName,
+        file_name: title || fileName,
         file_path: filePath,
         file_size: fileSize,
         mime_type: mimeType,
         uploaded_by: authResult.user.id,
         tags: tags && tags.length > 0 ? tags : null,
-        upload_source: uploadSource,
-        organization_id: organizationId,
+        upload_source: 'web',
       })
       .select()
       .single();
@@ -189,15 +170,9 @@ export async function POST(req: NextRequest) {
     await logAction(
       authResult.user.id,
       'create',
-      'attachment',
+      'service_sheet',
       data.id,
-      { 
-        entity_type: entityType, 
-        entity_id: entityId, 
-        appliance_id: applianceId, 
-        bucket,
-        upload_source: uploadSource,
-      },
+      { service_id: serviceId, appliance_id: applianceId },
       req
     );
     
@@ -213,10 +188,56 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function PUT(req: NextRequest) {
+  try {
+    // Check permission
+    const authResult = await requireAuthAndPermission(req, 'services:write');
+    if (authResult instanceof NextResponse) return authResult;
+
+    const body = await req.json();
+    const { id, title, description, tags } = body;
+    
+    if (!id) {
+      return NextResponse.json({ success: false, error: 'ID is required' }, { status: 400 });
+    }
+
+    const updateData: any = {};
+    if (title !== undefined) updateData.file_name = title;
+    if (description !== undefined) updateData.description = description;
+    if (tags !== undefined) {
+      updateData.tags = Array.isArray(tags) ? tags : tags.split(',').map((t: string) => t.trim());
+    }
+
+    const { data, error } = await supabase
+      .from('attachments')
+      .update(updateData)
+      .eq('id', id)
+      .eq('entity_type', 'service_sheet')
+      .select()
+      .single();
+    
+    if (error) throw error;
+
+    // Log update
+    await logAction(
+      authResult.user.id,
+      'update',
+      'service_sheet',
+      id,
+      updateData,
+      req
+    );
+    
+    return NextResponse.json({ success: true, data });
+  } catch (error: any) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   try {
     // Check permission
-    const authResult = await requireAuthAndPermission(req, 'attachments:delete');
+    const authResult = await requireAuthAndPermission(req, 'services:delete');
     if (authResult instanceof NextResponse) return authResult;
 
     const { searchParams } = new URL(req.url);
@@ -229,19 +250,17 @@ export async function DELETE(req: NextRequest) {
     // Get attachment to delete file from storage
     const { data: attachment, error: fetchError } = await supabase
       .from('attachments')
-      .select('file_path, entity_type')
+      .select('file_path')
       .eq('id', id)
+      .eq('entity_type', 'service_sheet')
       .single();
     
     if (fetchError) throw fetchError;
-
-    // Determine bucket
-    const bucket = getBucketForEntityType(attachment.entity_type);
     
     // Delete from storage
     if (attachment?.file_path) {
       await supabase.storage
-        .from(bucket)
+        .from('service-sheets')
         .remove([attachment.file_path]);
     }
     
@@ -249,7 +268,8 @@ export async function DELETE(req: NextRequest) {
     const { error } = await supabase
       .from('attachments')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .eq('entity_type', 'service_sheet');
     
     if (error) throw error;
 
@@ -257,9 +277,9 @@ export async function DELETE(req: NextRequest) {
     await logAction(
       authResult.user.id,
       'delete',
-      'attachment',
+      'service_sheet',
       id,
-      { entity_type: attachment.entity_type },
+      {},
       req
     );
     
@@ -268,3 +288,4 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
+

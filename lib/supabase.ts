@@ -215,3 +215,20 @@ export interface ApplianceType {
   updated_at: string;
 }
 
+export interface Attachment {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  appliance_id?: string;
+  file_name: string;
+  file_path: string;
+  file_size?: number;
+  mime_type?: string;
+  tags?: string[];
+  upload_source?: 'web' | 'pwa_customer' | 'pwa_technician' | 'api';
+  organization_id?: string;
+  uploaded_by?: string;
+  created_at: string;
+  url?: string;
+}
+

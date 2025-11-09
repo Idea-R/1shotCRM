@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { checkPermission, getUserRole, UserRole } from '@/lib/rbac';
 
 /**
  * Helper function to get authenticated user from request
@@ -55,5 +56,69 @@ export async function requireAuth(req: NextRequest): Promise<{ user: any } | Nex
   }
 
   return { user: authResult.user };
+}
+
+/**
+ * Helper function to require authentication and check permission
+ * Returns user or sends 401/403 response
+ */
+export async function requireAuthAndPermission(
+  req: NextRequest,
+  permission: string,
+  organizationId?: string | null
+): Promise<{ user: any; organizationId?: string | null } | NextResponse> {
+  const authResult = await getAuthenticatedUser(req);
+  
+  if (!authResult || !authResult.user) {
+    return NextResponse.json(
+      { success: false, error: 'Authentication required' },
+      { status: 401 }
+    );
+  }
+
+  const hasPermission = await checkPermission(
+    authResult.user.id,
+    permission,
+    organizationId
+  );
+
+  if (!hasPermission) {
+    return NextResponse.json(
+      { success: false, error: 'Insufficient permissions' },
+      { status: 403 }
+    );
+  }
+
+  return { user: authResult.user, organizationId };
+}
+
+/**
+ * Helper function to require authentication and check role
+ * Returns user or sends 401/403 response
+ */
+export async function requireAuthAndRole(
+  req: NextRequest,
+  roles: UserRole[],
+  organizationId?: string | null
+): Promise<{ user: any; organizationId?: string | null } | NextResponse> {
+  const authResult = await getAuthenticatedUser(req);
+  
+  if (!authResult || !authResult.user) {
+    return NextResponse.json(
+      { success: false, error: 'Authentication required' },
+      { status: 401 }
+    );
+  }
+
+  const userRole = await getUserRole(authResult.user.id, organizationId);
+
+  if (!roles.includes(userRole)) {
+    return NextResponse.json(
+      { success: false, error: 'Insufficient role permissions' },
+      { status: 403 }
+    );
+  }
+
+  return { user: authResult.user, organizationId };
 }
 

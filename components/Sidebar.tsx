@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, Workflow, CheckSquare, Settings, Briefcase, LogOut, User, ChevronLeft, ChevronRight, Music, Image as ImageIcon, Play } from 'lucide-react';
+import { LayoutDashboard, Users, Workflow, CheckSquare, Settings, Briefcase, LogOut, User, ChevronLeft, ChevronRight, Music, Image as ImageIcon, Play, Book } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState, useRef, useEffect } from 'react';
@@ -17,6 +17,7 @@ const navigation = [
   { name: 'Tasks', href: '/tasks', icon: CheckSquare },
   { name: 'Services', href: '/services', icon: Workflow },
   { name: 'Settings', href: '/settings', icon: Settings },
+  { name: 'API Docs', href: '/api-docs', icon: Book },
 ];
 
 export default function Sidebar() {
